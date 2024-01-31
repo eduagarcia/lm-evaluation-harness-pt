@@ -170,6 +170,7 @@ class HFLM(LM):
         # PEFT and quantization options
         peft: Optional[str] = None,
         autogptq: Optional[Union[bool, str]] = False,
+        starting_max_length: Optional[int] = None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -320,6 +321,7 @@ class HFLM(LM):
         self.batch_schedule = 1
         self.batch_sizes = {}
         self.max_batch_size = max_batch_size
+        self.starting_max_length = starting_max_length
 
         self._conservative_batch_size = False
         if batch_size == "conservative":
@@ -665,7 +667,10 @@ class HFLM(LM):
         #max_length = self.max_length
         eval_logger.info(f"Detecting batch size and max length, starting with batch size {self.max_batch_size} and max length {self.max_length}")
         # if OOM, then halves batch_size and tries again
-        @find_executable_memory_size(starting_batch_size=self.max_batch_size, starting_max_length=self.max_length)
+        starting_max_length = self.max_length
+        if self._max_length is None and self.starting_max_length is not None and self.max_length > self.starting_max_length:
+            starting_max_length = self.starting_max_length
+        @find_executable_memory_size(starting_batch_size=self.max_batch_size, starting_max_length=starting_max_length)
         def forward_batch(batch_size, max_length):
             if self.AUTO_MODEL_CLASS == transformers.AutoModelForSeq2SeqLM:
                 length = max_length #= max(max_context_enc, max_cont_enc)
@@ -814,6 +819,7 @@ class HFLM(LM):
             stopping_criteria=stopping_criteria,
             pad_token_id=self.tokenizer.pad_token_id,
             use_cache=True,
+            max_new_tokens=None, #overide default of some models
             **generation_kwargs,
         )
 
