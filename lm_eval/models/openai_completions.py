@@ -429,19 +429,7 @@ class OpenaiChatCompletionsLM(LM):
         raise NotImplementedError()
 
     def generate_until(self, requests) -> List[str]:
-        res = defaultdict(list)
-        re_ords = {}
-
-        # we group requests by their generation_kwargs,
-        # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
-        # in the same batch.
-        grouper = utils.Grouper(requests, lambda x: str(x.args[1]))
-        for key, reqs in grouper.get_grouped().items():
-            # within each set of reqs for given kwargs, we reorder by token length, descending.
-            re_ords[key] = utils.Reorderer(
-                [(req, req.args[1]) for req in reqs], lambda x: (-len(x[0].args[0]), x[0].args[0])
-            )
-
+        res = []
         resp_exist = {}
         
         """
@@ -488,102 +476,87 @@ class OpenaiChatCompletionsLM(LM):
         """
         
         pbar = tqdm(total=len(requests), disable=(self.rank != 0))
-        for key, re_ord in re_ords.items():
-            # n needs to be 1 because messages in
-            # chat completion are not batch but
-            # is regarded as a single conversation.
-            chunks = utils.chunks(re_ord.get_reordered(), n=1)
-            for chunk in chunks:
-                contexts, all_gen_kwargs = zip(*chunk)
-                inps = []
-                metas = []    
-                for context in contexts:
-                    data = context.ctx_data
-                    inps.append({"role": "system", "content": self.fix_text(data['description'])})
-                    for shot, ans in data['fewshots']:
-                        inps.append({"role": "user", "content": self.fix_text(shot)})
-                        inps.append({"role": "assistant", "content": self.fix_text(ans)})
-                    inps.append({"role": "user", "content": self.fix_text(data['example'])})
-                    
-                    if context.task_name in resp_exist and context.doc['id'] in resp_exist[context.task_name].keys():
-                        metas.append(resp_exist[context.task_name][context.doc['id']])
-                    else:
-                        metas.append(None)
-                    
+        for request in requests:
+            context, gen_kwargs = request.args
+            
+            inps = []
+            data = context.ctx_data
+            inps.append({"role": "system", "content": self.fix_text(data['description'])})
+            for shot, ans in data['fewshots']:
+                inps.append({"role": "user", "content": self.fix_text(shot)})
+                inps.append({"role": "assistant", "content": self.fix_text(ans)})
+            inps.append({"role": "user", "content": self.fix_text(data['example'])})
+            
+            use_cache = False
+            cached_response = None
+            if hasattr(context, 'task_name') and context.task_name in resp_exist and hasattr(context, 'doc') and 'id' in context.doc:
+                if context.doc['id'] in resp_exist[context.task_name]:
+                    cached_response = resp_exist[context.task_name][context.doc['id']]
+                    use_cache = True
+            
+            until = None
+            if isinstance(kwargs := copy.deepcopy(gen_kwargs), dict):
+                if "do_sample" in kwargs.keys():
+                    kwargs.pop("do_sample")
+                if "temperature" in kwargs.keys():
+                    kwargs.pop("temperature")
+                if "top_k" in kwargs.keys():
+                    kwargs.pop("top_k")
+                if "top_p" in kwargs.keys():
+                    kwargs.pop("top_p")
+                if "until" in kwargs.keys():
+                    until = kwargs.pop("until")
+                    if isinstance(until, str):
+                        until = [kwargs]
+                    elif not isinstance(until, list):
+                        raise ValueError(
+                            f"Expected repr(kwargs['until']) to be of type Union[str, list] but got {until}"
+                        )
+                    kwargs["stop"] = until
+                if "claude" in self.model or "llama" in self.model:
+                    if "stop" in kwargs.keys():
+                        kwargs.pop("stop")
+                kwargs["max_tokens"] = kwargs.pop("max_gen_toks", self.max_gen_toks)
+            else:
+                raise ValueError(
+                    f"Expected repr(kwargs) to be of type repr(dict) but got {kwargs}"
+                )
 
-                #inps = [{"role": "user", "content": context} for context in contexts]
+            skip_sleep = False
+            if use_cache:
+                print('Found answer in cache', cached_response)
+                response = [cached_response]
+                skip_sleep = True
+            else:
+                response = oa_completion(
+                    client=self.client,
+                    chat=True,
+                    messages=inps,
+                    model=self.model,
+                    temperature=0,
+                    **kwargs,
+                )
 
-                gen_kwargs = all_gen_kwargs[0]
-                until = None
-                if isinstance(kwargs := copy.deepcopy(gen_kwargs), dict):
-                    if "do_sample" in kwargs.keys():
-                        kwargs.pop("do_sample")
-                    if "temperature" in kwargs.keys():
-                        kwargs.pop("temperature")
-                    if "top_k" in kwargs.keys():
-                        kwargs.pop("top_k")
-                    if "top_p" in kwargs.keys():
-                        kwargs.pop("top_p")
-                    if "until" in kwargs.keys():
-                        until = kwargs.pop("until")
-                        if isinstance(until, str):
-                            until = [kwargs]
-                        elif not isinstance(until, list):
-                            raise ValueError(
-                                f"Expected repr(kwargs['until']) to be of type Union[str, list] but got {until}"
-                            )
-                        kwargs["stop"] = until
-                    if "claude" in self.model or "llama" in self.model:
-                        if "stop" in kwargs.keys():
-                            kwargs.pop("stop")
-                    kwargs["max_tokens"] = kwargs.pop("max_gen_toks", self.max_gen_toks)
+            s = response[0] if response else ""
 
+            if until is not None:
+                for term in until:
+                    if len(term) > 0:
+                        s = s.split(term)[0]
 
-                else:
-                    raise ValueError(
-                        f"Expected repr(kwargs) to be of type repr(dict) but got {kwargs}"
-                    )
+            res.append(s)
 
-                skip_sleep = False
-                if metas[0] is None:
-                    #eval_logger.info(inps)
-                    response = oa_completion(
-                        client=self.client,
-                        chat=True,
-                        messages=inps,
-                        model=self.model,
-                        temperature=0,
-                        **kwargs,
-                    )
-                else:
-                    print('Found answer in cache', metas)
-                    response = metas
-                    skip_sleep = True
-
-                for resp, (context, args_) in zip(response, chunk):
-                    s = resp
-
-                    if until is not None:
-                        for term in until:
-                            if len(term) > 0:
-                                s = s.split(term)[0]
-
-                    res[key].append(s)
-
-                    self.cache_hook.add_partial(
-                        "generate_until", (context, {"until": until}), s
-                    )
-                    pbar.update(1)
-                
-                if self.sleep_after_request is not None and not skip_sleep:
-                    time.sleep(self.sleep_after_request)
-
-            # reorder this group of results back to original unsorted form
-            res[key] = re_ord.get_original(res[key])
+            self.cache_hook.add_partial(
+                "generate_until", (context, {"until": until}), s
+            )
+            pbar.update(1)
+            
+            if self.sleep_after_request is not None and not skip_sleep:
+                time.sleep(self.sleep_after_request)
 
         pbar.close()
 
-        return grouper.get_original(res)
+        return res
 
     def loglikelihood(self, requests):
         raise NotImplementedError("No support for logits.")
