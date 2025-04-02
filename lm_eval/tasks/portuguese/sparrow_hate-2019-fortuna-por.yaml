@@ -1,5 +1,4 @@
 group:
-  - pt_benchmark
   - sparrow
 task: sparrow_hate-2019-fortuna-por
 task_alias: hate-2019-fortuna-por

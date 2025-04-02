@@ -1,5 +1,4 @@
 group:
-  - pt_benchmark
   - sparrow
 task: sparrow_emotion-2021-cortiz-por
 task_alias: emotion-2021-cortiz-por

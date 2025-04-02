@@ -1,5 +1,4 @@
 group:
-  - pt_benchmark
   - sparrow
 task: sparrow_sentiment-2018-brum-por
 task_alias: sentiment-2018-brum-por
