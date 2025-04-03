@@ -41,7 +41,7 @@ This fork includes several modifications tailored for Portuguese language evalua
 
 ## Portuguese Evaluation Tasks
 
-The evaluation suite (`pt_benchmark`) includes a diverse set of tasks covering different capabilities. The evaluations primarily use few-shot examples (typically 3 to 25, depending on the task) to assess model performance in context.
+The evaluation suite includes a diverse set of tasks covering different capabilities. The evaluations primarily use few-shot examples (typically 3 to 25, depending on the task) to assess model performance in context.
 
 | Task Alias      | Description                                           | Few-shot | Main Metric | Baseline | Link/Source                                                                 |
 |-----------------|-------------------------------------------------------|----------|-------------|----------|-----------------------------------------------------------------------------|
@@ -73,16 +73,12 @@ Task descriptions:
 
 ### Installation
 
-To install the Portuguese LLM evaluation harness:
-
 ```bash
 git clone https://github.com/eduagarcia/lm-evaluation-harness-pt
 cd lm-evaluation-harness-pt
 pip install -e .
-```
 
-For extended functionality (like faster inference with vLLM or using specific APIs), install optional dependencies:
-```bash
+# For extended functionality (faster inference with vLLM, API access, etc.)
 pip install -e ".[vllm,anthropic,openai,sentencepiece]"
 ```
 
@@ -93,7 +89,7 @@ To evaluate a Portuguese LLM with the complete Open PT LLM Leaderboard benchmark
 ```bash
 lm_eval \
     --model huggingface \
-    --model_args pretrained="YOUR_MODEL_ID",revision="main" \
+    --model_args "pretrained=YOUR_MODEL_ID,revision=main" \
     --tasks enem_challenge,bluex,oab_exams,assin2_rte,assin2_sts,faquad_nli,hatebr_offensive,portuguese_hate_speech,tweetsentbr \
     --device cuda:0 \
     --output_path "./"
@@ -102,102 +98,62 @@ lm_eval \
 You can also evaluate individual tasks:
 
 ```bash
-# Example for a base model
+# For base models
 lm_eval --model hf \
     --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
     --tasks assin2_rte,tweetsentbr \
     --device cuda:0 \
     --batch_size auto \
     --output_path results/YOUR_MODEL_ID
+```
 
-# Example for a chat model
-# The harness automatically detects and applies chat templates when they exist in the model's tokenizer.
+Chat Template - The libary automatically detects and applies chat templates when they exist in the model's tokenizer config. If you need to disable chat template:
+
+```bash
 # It tests different chat formats (system-user-assistant, user-assistant, assistant-user) 
 # and uses the one that works with your model.
-lm_eval --model hf \
-    --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
-    --tasks assin2_rte,tweetsentbr \
-    --device cuda:0 \
-    --batch_size auto \
-    --output_path results/YOUR_MODEL_ID
-
-# If you need to disable the automatic chat template detection:
+# Disable chat template detection
 lm_eval --model hf \
     --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True,apply_chat_template=False \
     --tasks assin2_rte,tweetsentbr \
     --device cuda:0 \
     --batch_size auto \
     --output_path results/YOUR_MODEL_ID
-
-# You can control this behavior with the option:
-# - `apply_chat_template=False`: Disable chat template detection and use plain text prompts
-#
-# The system automatically tries different conversation formats and selects the one that works with your model's tokenizer.
 ```
+
 *Set `batch_size` to `auto` for automatic batch size detection or specify an integer value.*
-
-### Evaluating All Portuguese Benchmark Tasks
-
-To run the complete Portuguese benchmark suite (`pt_benchmark`):
-
-```bash
-lm_eval --model hf \
-    --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
-    --tasks pt_benchmark \
-    --num_fewshot 3 \
-    --device cuda:0 \
-    --batch_size auto \
-    --output_path results/YOUR_MODEL_ID
-```
-*You can adjust `num_fewshot` if needed, although task defaults are generally recommended.*
 
 ### Memory Optimization
 
-The harness includes several features to optimize memory usage, allowing evaluation of larger models on consumer hardware:
+Choose the optimization technique that best fits your hardware constraints:
 
-#### 1. Automatic Batch Size Detection
-
+#### Automatic Batch Size
 ```bash
 # Auto-detect the largest possible batch size for your GPU
 lm_eval --model hf \
     --model_args pretrained=YOUR_MODEL_ID \
-    --tasks assin2_rte \
+    --tasks enem_challenge,bluex,oab_exams,assin2_rte,assin2_sts,faquad_nli,hatebr_offensive,portuguese_hate_speech,tweetsentbr \
     --device cuda:0 \
     --batch_size auto \
     --output_path results/YOUR_MODEL_ID
 ```
 
-For more conservative memory usage (to prevent potential OOMs):
-```bash
-lm_eval --model hf \
-    --model_args pretrained=YOUR_MODEL_ID \
-    --tasks assin2_rte \
-    --device cuda:0 \
-    --batch_size conservative \
-    --output_path results/YOUR_MODEL_ID
-```
 
-#### 2. Starting Max Length
-
-For models that can handle different sequence lengths, you can set a starting max length to optimize memory:
-
+#### Starting Max Length
 ```bash
 lm_eval --model hf \
     --model_args pretrained=YOUR_MODEL_ID,starting_max_length=1024 \
-    --tasks assin2_rte \
+    --tasks enem_challenge,bluex,oab_exams,assin2_rte,assin2_sts,faquad_nli,hatebr_offensive,portuguese_hate_speech,tweetsentbr \
     --device cuda:0 \
     --batch_size auto \
     --output_path results/YOUR_MODEL_ID
 ```
 
-#### 3. 4-bit Quantization
-
-Evaluate large models with 4-bit quantization to reduce memory requirements:
-
+#### 4-bit Quantization
 ```bash
 lm_eval --model hf \
     --model_args pretrained=YOUR_MODEL_ID,load_in_4bit=True \
-    --tasks assin2_rte \
+    --tasks enem_challenge,bluex,oab_exams,assin2_rte,assin2_sts,faquad_nli,hatebr_offensive,portuguese_hate_speech,tweetsentbr \
     --device cuda:0 \
     --batch_size auto \
     --output_path results/YOUR_MODEL_ID
@@ -211,7 +167,7 @@ For evaluating proprietary models through APIs (e.g., OpenAI):
 export OPENAI_API_KEY=YOUR_KEY_HERE
 lm_eval --model openai-chat-completions \
     --model_args model=gpt-4-turbo \
-    --tasks pt_benchmark \
+    --tasks enem_challenge,bluex,oab_exams,assin2_rte,assin2_sts,faquad_nli,hatebr_offensive,portuguese_hate_speech,tweetsentbr \
     --output_path results/gpt-4-turbo
 ```
 
@@ -230,12 +186,12 @@ For manual submission, please follow these steps:
 Execute the evaluation harness for the complete benchmark:
 ```bash
 lm_eval --model hf \
-    --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
-    --tasks pt_benchmark \
-    --device cuda:0 \
-    --batch_size auto \
-    --output_path results/YOUR_MODEL_ID \
-    --log_samples # Optional: Saves model outputs for inspection
+       --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
+       --tasks enem_challenge,bluex,oab_exams,assin2_rte,assin2_sts,faquad_nli,hatebr_offensive,portuguese_hate_speech,tweetsentbr \
+       --device cuda:0 \
+       --batch_size auto \
+       --output_path results/YOUR_MODEL_ID \
+       --log_samples
 ```
 
 ### 2. Submit Results
