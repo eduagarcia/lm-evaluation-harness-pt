@@ -477,7 +477,8 @@ class OpenaiChatCompletionsLM(LM):
         
         pbar = tqdm(total=len(requests), disable=(self.rank != 0))
         for request in requests:
-            context, gen_kwargs = request.args
+            context = request
+            gen_kwargs = request.args[1]
             
             inps = []
             data = context.ctx_data
@@ -513,9 +514,9 @@ class OpenaiChatCompletionsLM(LM):
                             f"Expected repr(kwargs['until']) to be of type Union[str, list] but got {until}"
                         )
                     kwargs["stop"] = until
-                if "claude" in self.model or "llama" in self.model:
-                    if "stop" in kwargs.keys():
-                        kwargs.pop("stop")
+                #if "claude" in self.model or "llama" in self.model:
+                if "stop" in kwargs.keys():
+                    kwargs.pop("stop")
                 kwargs["max_tokens"] = kwargs.pop("max_gen_toks", self.max_gen_toks)
             else:
                 raise ValueError(

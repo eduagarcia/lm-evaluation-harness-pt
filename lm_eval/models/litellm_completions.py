@@ -35,7 +35,7 @@ def litellm_completion(model, chat: bool = False, **kwargs):
         traceback.print_exc()
 
     @retry_on_specific_exceptions(
-        on_exceptions=[litellm.exceptions.OpenAIError],
+        on_exceptions=[Exception],
         max_retries=5,  
         backoff_time = 3.0,
         backoff_multiplier = 2, 
@@ -44,19 +44,14 @@ def litellm_completion(model, chat: bool = False, **kwargs):
     def completion():
         # Filter out basic parameters that will be explicitly passed
         filtered_kwargs = {k: v for k, v in kwargs.items() 
-                         if k not in ['messages', 'prompt', 'stream', 'echo', 'max_tokens', 
-                                     'temperature', 'logprobs', 'stop', 'seed']}
+                         if k not in ['model', 'messages', 'prompt', 'stream']}
         
         if chat:
             messages = kwargs.get("messages", [])
             return litellm.completion(
                 model=model, 
-                messages=messages, 
-                stream=kwargs.get("stream", False),
-                max_tokens=kwargs.get("max_tokens", 0), 
-                temperature=kwargs.get("temperature", 0),
-                stop=kwargs.get("stop", None), 
-                seed=kwargs.get("seed", None), 
+                messages=messages,
+                stream=False,
                 **filtered_kwargs
             )
         else:
@@ -64,13 +59,7 @@ def litellm_completion(model, chat: bool = False, **kwargs):
             return litellm.completion(
                 model=model, 
                 prompt=prompt, 
-                stream=kwargs.get("stream", False),
-                echo=kwargs.get("echo", False), 
-                max_tokens=kwargs.get("max_tokens", 0),
-                temperature=kwargs.get("temperature", 0), 
-                logprobs=kwargs.get("logprobs", None),
-                stop=kwargs.get("stop", None), 
-                seed=kwargs.get("seed", None), 
+                stream=False,
                 **filtered_kwargs
             )
 
@@ -192,7 +181,8 @@ class LiteLLMChatCompletionsLM(LM):
 
         pbar = tqdm(total=len(requests), disable=(self.rank != 0))
         for request in requests:
-            context, gen_kwargs = request.args
+            context = request
+            gen_kwargs = request.args[1]
             
             inps = []
             data = context.ctx_data
@@ -222,8 +212,8 @@ class LiteLLMChatCompletionsLM(LM):
                         )
                 #kwargs["stop"] = until
                 #if "claude" in self.model or "llama" in self.model:
-                #    if "stop" in kwargs.keys():
-                kwargs.pop("stop")
+                if "stop" in kwargs.keys():
+                    kwargs.pop("stop")
                 #kwargs["max_tokens"] = kwargs.pop("max_gen_toks", self.max_gen_toks)
             else:
                 raise ValueError(

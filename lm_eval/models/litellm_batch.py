@@ -430,7 +430,8 @@ class LiteLLMBatchCompletionsLM(LM):
                             f"Expected repr(kwargs['until']) to be of type Union[str, list] but got {until}"
                         )
                     kwargs["stop"] = until
-                kwargs.pop("stop")
+                if "stop" in kwargs.keys():
+                    kwargs.pop("stop")
                 kwargs["temperature"] = 0
             else:
                 raise ValueError(
