@@ -47,10 +47,10 @@ The evaluation suite includes a diverse set of tasks covering different capabili
 |-----------------|-------------------------------------------------------|----------|-------------|----------|-----------------------------------------------------------------------------|
 | **assin2_rte**  | Recognizing Textual Entailment (ASSIN 2)              | 15       | F1 Macro    | 50.0     | [ASSIN 2](https://sites.google.com/view/assin2/)                            |
 | **assin2_sts**  | Semantic Textual Similarity (ASSIN 2)                 | 15       | Pearson     | 0.0      | [ASSIN 2](https://sites.google.com/view/assin2/)                            |
-| **bluex**       | Reading Comprehension (BlueX)                         | 5        | F1 Macro    | 33.3     | [BlueX Dataset](https://github.com/dlicari/bluex)                           |
+| **bluex**       | Reading Comprehension (BlueX)                         | 5        | F1 Macro    | 33.3     | [BlueX Dataset](https://github.com/portuguese-benchmark-datasets/bluex)                           |
 | **enem**        | Multiple Choice Questions (ENEM Exam)                 | 3        | Accuracy    | 20.0     | [ENEM Challenge](https://www.ime.usp.br/~ddm/project/enem/) |
-| **faquad_nli**  | Natural Language Inference (FaQuAD-NLI)               | 5        | F1 Macro    | 33.3     | [FaQuAD-NLI](https://huggingface.co/datasets/rubensms/FaQuAD-NLI)           |
-| **hatebr**      | Offensive Language Detection (HateBR)                 | 25       | F1 Macro    | 50.0     | [HateBR Dataset](https://github.com/romeropeixoto/HateBR)                   |
+| **faquad_nli**  | Natural Language Inference (FaQuAD-NLI)               | 5        | F1 Macro    | 33.3     | [FaQuAD-NLI](https://huggingface.co/datasets/ruanchaves/faquad-nli)           |
+| **hatebr**      | Offensive Language Detection (HateBR)                 | 25       | F1 Macro    | 50.0     | [HateBR Dataset](https://github.com/franciellevargas/HateBR)                   |
 | **hate_speech** | Hate Speech Identification (Portuguese Hate Speech)   | 25       | F1 Macro    | 47.9     | [Portuguese Hate Speech](https://github.com/paulafortuna/Portuguese-Hate-Speech-Dataset) |
 | **tweetsentbr** | Sentiment Analysis (TweetSentBR)                      | 25       | F1 Macro    | 32.8     | [TweetSentBR](https://bitbucket.org/HBrum/tweetsentbr)                      |
 | **oab_exams**   | Brazilian Bar Exam Questions                          | 3        | Accuracy    | 20.0     | [OAB Exams](https://github.com/legal-nlp/oab-exams)           |
