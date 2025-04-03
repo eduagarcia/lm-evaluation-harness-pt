@@ -1,328 +1,421 @@
-# Language Model Evaluation Harness
+# Language Model Evaluation Harness for Portuguese LLMs
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10256836.svg)](https://doi.org/10.5281/zenodo.10256836)
 
-## Announcement
-**A new v0.4.0 release of lm-evaluation-harness is available** !
+**A framework for evaluating Large Language Models (LLMs) in Portuguese**
 
-New updates and features include:
+This repository is a fork of [EleutherAI's LM Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness), adapted specifically for evaluating language models in Portuguese. 📐 It serves as the evaluation suite for the 🚀 [Open Portuguese LLM Leaderboard](https://huggingface.co/spaces/eduagarcia/open_pt_llm_leaderboard), which aims to track, rank, and evaluate open LLMs and chatbots tailored for the Portuguese language.
 
-- Internal refactoring
-- Config-based task creation and configuration
-- Easier import and sharing of externally-defined task config YAMLs
-- Support for Jinja2 prompt design, easy modification of prompts + prompt imports from Promptsource
-- More advanced configuration options, including output post-processing, answer extraction, and multiple LM generations per document, configurable fewshot settings, and more
-- Speedups and new modeling libraries supported, including: faster data-parallel HF model usage, vLLM support, MPS support with HuggingFace, and more
-- Logging and usability changes
-- New tasks including CoT BIG-Bench-Hard, Belebele, user-defined task groupings, and more
+Submit a model for automated evaluation on the Hugging Face GPU cluster via the ["Submit" page](https://huggingface.co/spaces/eduagarcia/open_pt_llm_leaderboard?tab=submit) on the leaderboard!
 
-Please see our updated documentation pages in `docs/` for more details.
+## About the Leaderboard
 
-Development will be continuing on the `main` branch, and we encourage you to give us feedback on what features are desired and how to improve the library further, or ask questions, either in issues or PRs on GitHub, or in the [EleutherAI discord](https://discord.gg/eleutherai)!
+The 🚀 Open Portuguese LLM Leaderboard aims to provide a comprehensive benchmark for evaluating Large Language Models (LLMs) in the Portuguese language across a variety of tasks and datasets. The leaderboard:
 
-## Overview
+- Is open to submissions from the community
+- Serves as a resource for researchers, practitioners, and enthusiasts 
+- Includes tasks covering multiple aspects of language understanding and generation
 
-This project provides a unified framework to test generative language models on a large number of different evaluation tasks.
+This leaderboard is made possible by the support of the [Center of Excellence in AI (CEIA)](https://ceia.ufg.br/) at the [Federal University of Goiás (UFG)](https://international.ufg.br/).
 
-**Features:**
-- Over 60 standard academic benchmarks for LLMs, with hundreds of subtasks and variants implemented.
-- Support for models loaded via [transformers](https://github.com/huggingface/transformers/) (including quantization via [AutoGPTQ](https://github.com/PanQiWei/AutoGPTQ)), [GPT-NeoX](https://github.com/EleutherAI/gpt-neox), and [Megatron-DeepSpeed](https://github.com/microsoft/Megatron-DeepSpeed/), with a flexible tokenization-agnostic interface.
-- Support for fast and memory-efficient inference with [vLLM](https://github.com/vllm-project/vllm).
-- Support for commercial APIs including [OpenAI](https://openai.com), and [TextSynth](https://textsynth.com/).
-- Support for evaluation on adapters (e.g. LoRA) supported in [HuggingFace's PEFT library](https://github.com/huggingface/peft).
-- Support for local models and benchmarks.
-- Evaluation with publicly available prompts ensures reproducibility and comparability between papers.
-- Easy support for custom prompts and evaluation metrics.
+## Portuguese-Specific Features
 
-The Language Model Evaluation Harness is the backend for 🤗 Hugging Face's popular [Open LLM Leaderboard](https://huggingface.co/spaces/HuggingFaceH4/open_llm_leaderboard), has been used in [hundreds of papers](https://scholar.google.com/scholar?oi=bibs&hl=en&authuser=2&cites=15052937328817631261,4097184744846514103,1520777361382155671,17476825572045927382,18443729326628441434,14801318227356878622,7890865700763267262,12854182577605049984,15641002901115500560,5104500764547628290), and is used internally by dozens of organizations including NVIDIA, Cohere, BigScience, BigCode, Nous Research, and Mosaic ML.
+This fork includes several modifications tailored for Portuguese language evaluation:
 
-## Install
+- **Portuguese Task Suite**: A comprehensive collection of NLP tasks designed for the Portuguese language (see list below).
+- **Direct Response Evaluation**: Works with models' direct text responses rather than just log probabilities, suitable for evaluating instruction-tuned models and chatbots.
+- **Chat Template Support**: Enhanced compatibility with LLMs using various chat templates from the transformers libary. Automatically detects and applies the appropriate chat template format (system-user-assistant, user-assistant, or assistant-user) without requiring manual configuration. This ensures accurate evaluation of chat-optimized models with their native prompt formats.
+- **Multi-Backend Support**: 
+  - **vLLM Integration**: Accelerated inference with batch evaluation for faster processing of large models.
+  - **LiteLLM Support**: Evaluation of closed-source models via APIs (including OpenAI, Google's Vertex AI/Gemini, etc.).
+- **Memory Optimization**: 
+  - Automatic batch size detection and adjustment based on available GPU memory.
+  - Dynamic max_length adjustment for efficient resource utilization.
+  - Starting_max_length option for better GPU memory management.
+- **Evaluation Enhancements**:
+  - Improved metrics calculation (F1-macro, Pearson) with better handling of edge cases.
+  - Reasoning extraction for models that provide explanations before answers (e.g., DeepSeek models).
+  - Temperature control (set to 0) for API models to ensure deterministic outputs.
+- **Custom Filters**: Special text processing pipelines adapted for Portuguese tasks characteristics.
+- **UTF-8 Support**: Proper encoding for Portuguese text with accents and special characters in both inputs and outputs.
+- **Few-shot ID Sampling**: Preserves order of few-shot examples for consistent evaluation.
 
-To install the `lm-eval` package from the github repository, run:
+## Portuguese Evaluation Tasks
+
+The evaluation suite (`pt_benchmark`) includes a diverse set of tasks covering different capabilities. The evaluations primarily use few-shot examples (typically 3 to 25, depending on the task) to assess model performance in context.
+
+| Task Alias      | Description                                           | Few-shot | Main Metric | Baseline | Link/Source                                                                 |
+|-----------------|-------------------------------------------------------|----------|-------------|----------|-----------------------------------------------------------------------------|
+| **assin2_rte**  | Recognizing Textual Entailment (ASSIN 2)              | 15       | F1 Macro    | 50.0     | [ASSIN 2](https://sites.google.com/view/assin2/)                            |
+| **assin2_sts**  | Semantic Textual Similarity (ASSIN 2)                 | 15       | Pearson     | 0.0      | [ASSIN 2](https://sites.google.com/view/assin2/)                            |
+| **bluex**       | Reading Comprehension (BlueX)                         | 5        | F1 Macro    | 33.3     | [BlueX Dataset](https://github.com/dlicari/bluex)                           |
+| **enem**        | Multiple Choice Questions (ENEM Exam)                 | 3        | Accuracy    | 20.0     | [ENEM Challenge](https://www.ime.usp.br/~ddm/project/enem/) |
+| **faquad_nli**  | Natural Language Inference (FaQuAD-NLI)               | 5        | F1 Macro    | 33.3     | [FaQuAD-NLI](https://huggingface.co/datasets/rubensms/FaQuAD-NLI)           |
+| **hatebr**      | Offensive Language Detection (HateBR)                 | 25       | F1 Macro    | 50.0     | [HateBR Dataset](https://github.com/romeropeixoto/HateBR)                   |
+| **hate_speech** | Hate Speech Identification (Portuguese Hate Speech)   | 25       | F1 Macro    | 47.9     | [Portuguese Hate Speech](https://github.com/paulafortuna/Portuguese-Hate-Speech-Dataset) |
+| **tweetsentbr** | Sentiment Analysis (TweetSentBR)                      | 25       | F1 Macro    | 32.8     | [TweetSentBR](https://bitbucket.org/HBrum/tweetsentbr)                      |
+| **oab_exams**   | Brazilian Bar Exam Questions                          | 3        | Accuracy    | 20.0     | [OAB Exams](https://github.com/legal-nlp/oab-exams)           |
+
+Task descriptions:
+
+- **assin2_rte**: A dataset for Recognizing Textual Entailment in Portuguese, part of the ASSIN 2 shared task.
+- **assin2_sts**: A dataset for Semantic Textual Similarity in Portuguese, assessing model ability to determine semantic equivalence between sentences.
+- **bluex**: A reading comprehension dataset for Portuguese, testing the ability to understand and extract information from texts.
+- **enem**: Questions from the Brazilian High School National Exam (ENEM), covering various subjects in multiple-choice format.
+- **faquad_nli**: A Natural Language Inference dataset derived from the FaQuAD question-answering dataset for Portuguese.
+- **hatebr**: A dataset of Brazilian Instagram comments annotated for offensive language and hate speech detection.
+- **hate_speech**: A hierarchically labeled Portuguese hate speech dataset composed of tweets with binary annotations.
+- **tweetsentbr**: A corpus of tweets in Brazilian Portuguese annotated for sentiment analysis in three classes (Positive, Negative, Neutral).
+- **oab_exams**: Multiple-choice questions from the Brazilian Bar Exam, testing legal knowledge and reasoning.
+
+*Note: Baseline scores represent the default performance expectation (e.g., random guessing for classification tasks). Few-shot counts might vary slightly based on configuration.*
+
+## Getting Started
+
+### Installation
+
+To install the Portuguese LLM evaluation harness:
 
 ```bash
-git clone https://github.com/EleutherAI/lm-evaluation-harness
-cd lm-evaluation-harness
+git clone https://github.com/eduagarcia/lm-evaluation-harness-pt
+cd lm-evaluation-harness-pt
 pip install -e .
 ```
 
-We also provide a number of optional dependencies for extended functionality. Extras can be installed via `pip install -e ".[NAME]"`
-
-| Name          | Use                                   |
-|---------------|---------------------------------------|
-| anthropic     | For using Anthropic's models          |
-| dev           | For linting PRs and contributions     |
-| gptq          | For loading models with GPTQ          |
-| ifeval        | For running the IFEval task           |
-| mamba         | For loading Mamba SSM models          |
-| math          | For running math task answer checking |
-| multilingual  | For multilingual tokenizers           |
-| openai        | For using OpenAI's models             |
-| promptsource  | For using PromptSource prompts        |
-| sentencepiece | For using the sentencepiece tokenizer |
-| testing       | For running library test suite        |
-| vllm          | For loading models with vLLM          |
-| zeno          | For visualizing results with Zeno     |
-|---------------|---------------------------------------|
-| all           | Loads all extras (not recommended)    |
-
-## Basic Usage
-
-### Hugging Face `transformers`
-
-To evaluate a model hosted on the [HuggingFace Hub](https://huggingface.co/models) (e.g. GPT-J-6B) on `hellaswag` you can use the following command (this assumes you are using a CUDA-compatible GPU):
-
+For extended functionality (like faster inference with vLLM or using specific APIs), install optional dependencies:
 ```bash
-lm_eval --model hf \
-    --model_args pretrained=EleutherAI/gpt-j-6B \
-    --tasks hellaswag \
-    --device cuda:0 \
-    --batch_size 8
+pip install -e ".[vllm,anthropic,openai,sentencepiece]"
 ```
 
-Additional arguments can be provided to the model constructor using the `--model_args` flag. Most notably, this supports the common practice of using the `revisions` feature on the Hub to store partially trained checkpoints, or to specify the datatype for running a model:
+### Basic Usage
 
-```bash
-lm_eval --model hf \
-    --model_args pretrained=EleutherAI/pythia-160m,revision=step100000,dtype="float" \
-    --tasks lambada_openai,hellaswag \
-    --device cuda:0 \
-    --batch_size 8
-```
-
-Models that are loaded via both `transformers.AutoModelForCausalLM` (autoregressive, decoder-only GPT style models) and `transformers.AutoModelForSeq2SeqLM` (such as encoder-decoder models like T5) in Huggingface are supported.
-
-Batch size selection can be automated by setting the  ```--batch_size``` flag to ```auto```. This will perform automatic detection of the largest batch size that will fit on your device. On tasks where there is a large difference between the longest and shortest example, it can be helpful to periodically recompute the largest batch size, to gain a further speedup. To do this, append ```:N``` to above flag to automatically recompute the largest batch size ```N``` times. For example, to recompute the batch size 4 times, the command would be:
-
-```bash
-lm_eval --model hf \
-    --model_args pretrained=EleutherAI/pythia-160m,revision=step100000,dtype="float" \
-    --tasks lambada_openai,hellaswag \
-    --device cuda:0 \
-    --batch_size auto:4
-```
-
-The full list of supported arguments are provided [here](./docs/interface.md), and on the terminal by calling `lm_eval -h`. Alternatively, you can use `lm-eval` instead of `lm_eval`.
-
-> [!Note]
-> Just like you can provide a local path to `transformers.AutoModel`, you can also provide a local path to `lm_eval` via `--model_args pretrained=/path/to/model`
-
-#### Multi-GPU Evaluation with Hugging Face `accelerate`
-
-We support two main ways of using Hugging Face's [accelerate 🚀](https://github.com/huggingface/accelerate) library for multi-GPU evaluation.
-
-To perform *data-parallel evaluation* (where each GPU loads a **separate full copy** of the model), we leverage the `accelerate` launcher as follows:
-
-```
-accelerate launch -m lm_eval --model hf \
-    --tasks lambada_openai,arc_easy \
-    --batch_size 16
-```
-(or via `accelerate launch --no-python lm_eval`).
-
-For cases where your model can fit on a single GPU, this allows you to evaluate on K GPUs K times faster than on one.
-
-**WARNING**: This setup does not work with FSDP model sharding, so in `accelerate config` FSDP must be disabled, or the NO_SHARD FSDP option must be used.
-
-The second way of using `accelerate` for multi-GPU evaluation is when your model is *too large to fit on a single GPU.*
-
-In this setting, run the library *outside of the `accelerate` launcher*, but passing `parallelize=True` to `--model_args` as follows:
-
-```
-lm_eval --model hf \
-    --tasks lambada_openai,arc_easy \
-    --model_args parallelize=True \
-    --batch_size 16
-```
-
-This means that your model's weights will be split across all available GPUs.
-
-For more advanced users or even larger models, we allow for the following arguments when `parallelize=True` as well:
-- `device_map_option`: How to split model weights across available GPUs. defaults to "auto".
-- `max_memory_per_gpu`: the max GPU memory to use per GPU in loading the model.
-- `max_cpu_memory`: the max amount of CPU memory to use when offloading the model weights to RAM.
-- `offload_folder`: a folder where model weights will be offloaded to disk if needed.
-
-These two options (`accelerate launch` and `parallelize=True`) are mutually exclusive.
-
-### Tensor + Data Parallel and Optimized Inference with `vLLM`
-
-We also support vLLM for faster inference on [supported model types](https://docs.vllm.ai/en/latest/models/supported_models.html), especially faster when splitting a model across multiple GPUs. For single-GPU or multi-GPU — tensor parallel, data parallel, or a combination of both — inference, for example:
-
-```bash
-lm_eval --model vllm \
-    --model_args pretrained={model_name},tensor_parallel_size={GPUs_per_model},dtype=auto,gpu_memory_utilization=0.8,data_parallel_size={model_replicas} \
-    --tasks lambada_openai \
-    --batch_size auto
-```
-For a full list of supported vLLM configurations, please reference our vLLM integration and the vLLM documentation.
-
-vLLM occasionally differs in output from Huggingface. We treat Huggingface as the reference implementation, and provide a [script](./scripts/model_comparator.py) for checking the validity of vllm results against HF.
-
-### Model APIs and Inference Servers
-
-Our library also supports the evaluation of models served via several commercial APIs, and we hope to implement support for the most commonly used performant local/self-hosted inference servers.
-
-To call a hosted model, use:
-
-```bash
-export OPENAI_API_KEY=YOUR_KEY_HERE
-lm_eval --model openai-completions \
-    --model_args model=davinci \
-    --tasks lambada_openai,hellaswag
-```
-
-We also support using your own local inference server with an implemented version of the OpenAI ChatCompletions endpoint and passing trained HuggingFace artifacts and tokenizers.
-
-```bash
-lm_eval --model local-chat-completions --tasks gsm8k --model_args model=facebook/opt-125m,base_url=http://{yourip}:8000/v1
-```
-Note that for externally hosted models, configs such as `--device` and `--batch_size` should not be used and do not function. Just like you can use `--model_args` to pass arbitrary arguments to the model constructor for local models, you can use it to pass arbitrary arguments to the model API for hosted models. See the documentation of the hosting service for information on what arguments they support.
-
-| API or Inference Server                                                                                                   | Implemented?                    | `--model <xxx>` name                                                | Models supported:                                                                             | Request Types:                                             |
-|---------------------------------------------------------------------------------------------------------------------------|---------------------------------|---------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|------------------------------------------------------------|
-| OpenAI Completions                                                                                                        | :heavy_check_mark:              | `openai-completions` | up to `code-davinci-002`                                                                      | `generate_until`, `loglikelihood`, `loglikelihood_rolling` |
-| OpenAI ChatCompletions                                                                                                    | :heavy_check_mark:        | `openai-chat-completions`, `local-chat-completions`                                                               | [All ChatCompletions API models](https://platform.openai.com/docs/guides/gpt)                 | `generate_until` (no logprobs)                             |
-| Anthropic                                                                                                                 | :heavy_check_mark:              | `anthropic`                                                         | [Supported Anthropic Engines](https://docs.anthropic.com/claude/reference/selecting-a-model)  | `generate_until` (no logprobs)                             |
-| Textsynth                                                                                                                 | :heavy_check_mark:                   | `textsynth`                                                         | [All supported engines](https://textsynth.com/documentation.html#engines)                     | `generate_until`, `loglikelihood`, `loglikelihood_rolling` |
-| Cohere                                                                                                                    | [:hourglass: - blocked on Cohere API bug](https://github.com/EleutherAI/lm-evaluation-harness/pull/395) | N/A                                                                 | [All `cohere.generate()` engines](https://docs.cohere.com/docs/models)                        | `generate_until`, `loglikelihood`, `loglikelihood_rolling` |
-| [Llama.cpp](https://github.com/ggerganov/llama.cpp) (via [llama-cpp-python](https://github.com/abetlen/llama-cpp-python)) | :heavy_check_mark:              | `gguf`, `ggml`                                                      | [All models supported by llama.cpp](https://github.com/ggerganov/llama.cpp)                   | `generate_until`, `loglikelihood`, (perplexity evaluation not yet implemented) |
-| vLLM                                                                                                                      | :heavy_check_mark:       | `vllm`                                                              | [Most HF Causal Language Models](https://docs.vllm.ai/en/latest/models/supported_models.html) | `generate_until`, `loglikelihood`, `loglikelihood_rolling` |
-| Mamba                       | :heavy_check_mark:       | `mamba_ssm`                                                                      | [Mamba architecture Language Models via the `mamba_ssm` package](https://huggingface.co/state-spaces) | `generate_until`, `loglikelihood`, `loglikelihood_rolling`                             |
-| Your local inference server!                                                                                              | :heavy_check_mark:                             | `local-chat-completions` (using `openai-chat-completions` model type)    | Any server address that accepts GET requests using HF models and mirror's OpenAI's ChatCompletions interface                                  | `generate_until`                                           |                                | ...                                                      |
-
-It is on our roadmap to create task variants designed to enable models which do not serve logprobs/loglikelihoods to be compared with generation performance of open-source models.
-
-### Other Frameworks
-
-A number of other libraries contain scripts for calling the eval harness through their library. These include [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/blob/main/eval_tasks/eval_adapter.py), [Megatron-DeepSpeed](https://github.com/microsoft/Megatron-DeepSpeed/blob/main/examples/MoE/readme_evalharness.md), and [mesh-transformer-jax](https://github.com/kingoflolz/mesh-transformer-jax/blob/master/eval_harness.py).
-
-To create your own custom integration you can follow instructions from [this tutorial](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/interface.md#external-library-usage).
-
-### Additional Features
-
-If you have a Metal compatible Mac, you can run the eval harness using the MPS back-end by replacing `--device cuda:0` with `--device mps` (requires PyTorch version 2.1 or higher).
-
-> [!Note]
-> You can inspect what the LM inputs look like by running the following command:
-> ```bash
-> python write_out.py \
->     --tasks all_tasks \
->     --num_fewshot 5 \
->     --num_examples 10 \
->     --output_base_path /path/to/output/folder
-> ```
-> This will write out one text file for each task.
-
-To verify the data integrity of the tasks you're performing in addition to running the tasks themselves, you can use the `--check_integrity` flag:
-
-```bash
-lm_eval --model openai \
-    --model_args engine=davinci \
-    --tasks lambada_openai,hellaswag \
-    --check_integrity
-```
-
-## Advanced Usage Tips
-
-For models loaded with the HuggingFace  `transformers` library, any arguments provided via `--model_args` get passed to the relevant constructor directly. This means that anything you can do with `AutoModel` can be done with our library. For example, you can pass a local path via `pretrained=` or use models finetuned with [PEFT](https://github.com/huggingface/peft) by taking the call you would run to evaluate the base model and add `,peft=PATH` to the `model_args` argument:
-```bash
-lm_eval --model hf \
-    --model_args pretrained=EleutherAI/gpt-j-6b,parallelize=True,load_in_4bit=True,peft=nomic-ai/gpt4all-j-lora \
-    --tasks openbookqa,arc_easy,winogrande,hellaswag,arc_challenge,piqa,boolq \
-    --device cuda:0
-```
-
-[GPTQ](https://github.com/PanQiWei/AutoGPTQ) quantized models can be loaded by specifying their file names in `,autogptq=NAME` (or `,autogptq=True` for default names) in the `model_args` argument:
-
-```bash
-lm_eval --model hf \
-    --model_args pretrained=model-name-or-path,autogptq=model.safetensors,gptq_use_triton=True \
-    --tasks hellaswag
-```
-
-We support wildcards in task names, for example you can run all of the machine-translated lambada tasks via `--task lambada_openai_mt_*`.
-
-To save evaluation results provide an `--output_path`. We also support logging model responses with the `--log_samples` flag for post-hoc analysis.
-
-Additionally, one can provide a directory with `--use_cache` to cache the results of prior runs. This allows you to avoid repeated execution of the same (model, task) pairs for re-scoring.
-
-For a full list of supported arguments, check out the [interface](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/interface.md) guide in our documentation!
-
-## Visualizing Results
-
-You can use [Zeno](https://zenoml.com) to visualize the results of your eval harness runs.
-
-First, head to [hub.zenoml.com](https://hub.zenoml.com) to create an account and get an API key [on your account page](https://hub.zenoml.com/account).
-Add this key as an environment variable:
-
-```bash
-export ZENO_API_KEY=[your api key]
-```
-
-You'll also need to install the `lm_eval[zeno]` package extra.
-
-To visualize the results, run the eval harness with the `log_samples` and `output_path` flags.
-We expect `output_path` to contain multiple folders that represent individual model names.
-You can thus run your evaluation on any number of tasks and models and upload all of the results as projects on Zeno.
+To evaluate a Portuguese LLM with the complete Open PT LLM Leaderboard benchmark:
 
 ```bash
 lm_eval \
-    --model hf \
-    --model_args pretrained=EleutherAI/gpt-j-6B \
-    --tasks hellaswag \
+    --model huggingface \
+    --model_args pretrained="YOUR_MODEL_ID",revision="main" \
+    --tasks enem_challenge,bluex,oab_exams,assin2_rte,assin2_sts,faquad_nli,hatebr_offensive,portuguese_hate_speech,tweetsentbr \
     --device cuda:0 \
-    --batch_size 8 \
-    --log_samples \
-    --output_path output/gpt-j-6B
+    --output_path "./"
 ```
 
-Then, you can upload the resulting data using the `zeno_visualize` script:
+You can also evaluate individual tasks:
 
 ```bash
-python scripts/zeno_visualize.py \
-    --data_path output \
-    --project_name "Eleuther Project"
+# Example for a base model
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
+    --tasks assin2_rte,tweetsentbr \
+    --device cuda:0 \
+    --batch_size auto \
+    --output_path results/YOUR_MODEL_ID
+
+# Example for a chat model
+# The harness automatically detects and applies chat templates when they exist in the model's tokenizer.
+# It tests different chat formats (system-user-assistant, user-assistant, assistant-user) 
+# and uses the one that works with your model.
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
+    --tasks assin2_rte,tweetsentbr \
+    --device cuda:0 \
+    --batch_size auto \
+    --output_path results/YOUR_MODEL_ID
+
+# If you need to disable the automatic chat template detection:
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True,apply_chat_template=False \
+    --tasks assin2_rte,tweetsentbr \
+    --device cuda:0 \
+    --batch_size auto \
+    --output_path results/YOUR_MODEL_ID
+
+# You can control this behavior with the option:
+# - `apply_chat_template=False`: Disable chat template detection and use plain text prompts
+#
+# The system automatically tries different conversation formats and selects the one that works with your model's tokenizer.
+```
+*Set `batch_size` to `auto` for automatic batch size detection or specify an integer value.*
+
+### Evaluating All Portuguese Benchmark Tasks
+
+To run the complete Portuguese benchmark suite (`pt_benchmark`):
+
+```bash
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
+    --tasks pt_benchmark \
+    --num_fewshot 3 \
+    --device cuda:0 \
+    --batch_size auto \
+    --output_path results/YOUR_MODEL_ID
+```
+*You can adjust `num_fewshot` if needed, although task defaults are generally recommended.*
+
+### Memory Optimization
+
+The harness includes several features to optimize memory usage, allowing evaluation of larger models on consumer hardware:
+
+#### 1. Automatic Batch Size Detection
+
+```bash
+# Auto-detect the largest possible batch size for your GPU
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID \
+    --tasks assin2_rte \
+    --device cuda:0 \
+    --batch_size auto \
+    --output_path results/YOUR_MODEL_ID
 ```
 
-This will use all subfolders in `data_path` as different models and upload all tasks within these model folders to Zeno.
-If you run the eval harness on multiple tasks, the `project_name` will be used as a prefix and one project will be created per task.
-
-You can find an example of this workflow in [examples/visualize-zeno.ipynb](examples/visualize-zeno.ipynb).
-
-## How to Contribute or Learn More?
-
-For more information on the library and how everything fits together, check out all of our [documentation pages](https://github.com/EleutherAI/lm-evaluation-harness/tree/main/docs)! We plan to post a larger roadmap of desired + planned library improvements soon, with more information on how contributors can help.
-
-### Implementing new tasks
-
-To implement a new task in the eval harness, see [this guide](./docs/new_task_guide.md).
-
-In general, we follow this priority list for addressing concerns about prompting and other eval details:
-1. If there is widespread agreement among people who train LLMs, use the agreed upon procedure.
-2. If there is a clear and unambiguous official implementation, use that procedure.
-3. If there is widespread agreement among people who evaluate LLMs, use the agreed upon procedure.
-4. If there are multiple common implementations but not universal or widespread agreement, use our preferred option among the common implementations. As before, prioritize choosing from among the implementations found in LLM training papers.
-
-These are guidelines and not rules, and can be overruled in special circumstances.
-
-We try to prioritize agreement with the procedures used by other groups to decrease the harm when people inevitably compare runs across different papers despite our discouragement of the practice. Historically, we also prioritized the implementation from [Language Models are Few Shot Learners](https://arxiv.org/abs/2005.14165) as our original goal was specifically to compare results with that paper.
-
-### Support
-
-The best way to get support is to open an issue on this repo or join the [EleutherAI Discord server](https://discord.gg/eleutherai). The `#lm-thunderdome` channel is dedicated to developing this project and the `#release-discussion` channel is for receiving support for our releases. If you've used the library and have had a positive (or negative) experience, we'd love to hear from you!
-
-## Cite as
-
+For more conservative memory usage (to prevent potential OOMs):
+```bash
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID \
+    --tasks assin2_rte \
+    --device cuda:0 \
+    --batch_size conservative \
+    --output_path results/YOUR_MODEL_ID
 ```
+
+#### 2. Starting Max Length
+
+For models that can handle different sequence lengths, you can set a starting max length to optimize memory:
+
+```bash
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID,starting_max_length=1024 \
+    --tasks assin2_rte \
+    --device cuda:0 \
+    --batch_size auto \
+    --output_path results/YOUR_MODEL_ID
+```
+
+#### 3. 4-bit Quantization
+
+Evaluate large models with 4-bit quantization to reduce memory requirements:
+
+```bash
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID,load_in_4bit=True \
+    --tasks assin2_rte \
+    --device cuda:0 \
+    --batch_size auto \
+    --output_path results/YOUR_MODEL_ID
+```
+
+### Using API-based Models
+
+For evaluating proprietary models through APIs (e.g., OpenAI):
+
+```bash
+export OPENAI_API_KEY=YOUR_KEY_HERE
+lm_eval --model openai-chat-completions \
+    --model_args model=gpt-4-turbo \
+    --tasks pt_benchmark \
+    --output_path results/gpt-4-turbo
+```
+
+## Submitting to the Leaderboard Manually
+
+The [Open Portuguese LLM Leaderboard](https://huggingface.co/spaces/eduagarcia/open_pt_llm_leaderboard) offers two methods for submitting models for evaluation:
+
+1. **Automatic Submission**: Submit your model through the leaderboard's ["Submit" page](https://huggingface.co/spaces/eduagarcia/open_pt_llm_leaderboard?tab=submit) for evaluation on a available GPU cluster. This is the recommended and simplest approach for most models.
+
+2. **Manual Submission**: For models with special requirements (such as those requiring `trust_remote_code=True`, depending on external libraries beyond transformers, or models without publicly accessible weights), or when automatic submission encounters issues. Detailed instructions for manual submission are provided below.
+
+For manual submission, please follow these steps:
+
+### 1. Run the Evaluation
+
+Execute the evaluation harness for the complete benchmark:
+```bash
+lm_eval --model hf \
+    --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
+    --tasks pt_benchmark \
+    --device cuda:0 \
+    --batch_size auto \
+    --output_path results/YOUR_MODEL_ID \
+    --log_samples # Optional: Saves model outputs for inspection
+```
+
+### 2. Submit Results
+
+After running the evaluation:
+1. Look for the results JSON file in your output directory
+2. [Open an issue](https://huggingface.co/spaces/eduagarcia/open_pt_llm_leaderboard/discussions/new) on the leaderboard space with your results attached
+3. **Send an email** to edusantosgarcia@gmail.com with:
+   - Your model name and Hugging Face Hub link
+   - The zipped JSON files attached
+   - Any special considerations about your model
+
+I will review and add your results manually.
+
+## Troubleshooting Evaluation Failures
+
+If your model evaluation fails:
+1  **Local Test:** Try running the evaluation command locally first. You can add `--limit 10` to quickly test evaluation on a small number of examples per task.
+    ```bash
+    lm_eval --model hf \
+        --model_args pretrained=YOUR_MODEL_ID,trust_remote_code=True \
+        --tasks pt_benchmark \
+        --device cuda:0 \
+        --batch_size 8 \
+        --limit 10
+    ```
+2.  **Check Logs:** Examine the output logs for specific error messages.
+3.  **Consult Leaderboard FAQ:** Review the FAQ section on the [leaderboard space](https://huggingface.co/spaces/eduagarcia/open_pt_llm_leaderboard) for common issues.
+4.  **Open Issue:** If the problem persists, consider opening an issue in this repository or on the leaderboard's discussion forum.
+
+## Acknowledgments
+
+This project builds upon the excellent work of [EleutherAI's LM Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness). We express our gratitude to the original authors and contributors. We also thank the creators of the datasets used in the Portuguese benchmark tasks.
+
+## Citation
+
+If you use this framework or the benchmark results in your research, please cite this repository and the original LM Evaluation Harness. Consider citing the specific datasets used as well.
+
+```bibtex
+@misc{open-pt-llm-leaderboard,
+  author = {Garcia, Eduardo A. S.},
+  title = {Open Portuguese LLM Leaderboard},
+  year = {2024},
+  publisher = {Hugging Face},
+  howpublished = "\url{https://huggingface.co/spaces/eduagarcia/open_pt_llm_leaderboard}"
+}
+
 @misc{eval-harness,
   author       = {Gao, Leo and Tow, Jonathan and Abbasi, Baber and Biderman, Stella and Black, Sid and DiPofi, Anthony and Foster, Charles and Golding, Laurence and Hsu, Jeffrey and Le Noac'h, Alain and Li, Haonan and McDonell, Kyle and Muennighoff, Niklas and Ociepa, Chris and Phang, Jason and Reynolds, Laria and Schoelkopf, Hailey and Skowron, Aviya and Sutawika, Lintang and Tang, Eric and Thite, Anish and Wang, Ben and Wang, Kevin and Zou, Andy},
   title        = {A framework for few-shot language model evaluation},
   month        = 12,
-  year         = 2023,
+  year         = {2023},
   publisher    = {Zenodo},
   version      = {v0.4.0},
   doi          = {10.5281/zenodo.10256836},
   url          = {https://zenodo.org/records/10256836}
+}
+```
+
+For specific datasets used in the Portuguese benchmark:
+
+```bibtex
+@InProceedings{ENEM-Challenge,
+  author = {Silveira, Igor Cataneo and Mau\'a, Denis Deratani},
+  booktitle = {Proceedings of the 6th Brazilian Conference on Intelligent Systems},
+  series = {BRACIS},
+  title = {University Entrance Exam as a Guiding Test for Artificial Intelligence},
+  pages = {426--431},
+  year = {2017}
+}
+
+@misc{nunes2023evaluating,
+  title={Evaluating GPT-3.5 and GPT-4 Models on Brazilian University Admission Exams}, 
+  author={Desnes Nunes and Ricardo Primi and Ramon Pires and Roberto Lotufo and Rodrigo Nogueira},
+  year={2023},
+  eprint={2303.17003},
+  archivePrefix={arXiv},
+  primaryClass={cs.CL}
+}
+
+@misc{pires2023evaluating,
+  title={Evaluating GPT-4's Vision Capabilities on Brazilian University Admission Exams}, 
+  author={Ramon Pires and Thales Sales Almeida and Hugo Abonizio and Rodrigo Nogueira},
+  year={2023},
+  eprint={2311.14169},
+  archivePrefix={arXiv},
+  primaryClass={cs.CL}
+}
+
+@misc{almeida2023bluex,
+  title={BLUEX: A benchmark based on Brazilian Leading Universities Entrance eXams}, 
+  author={Thales Sales Almeida and Thiago Laitz and Giovana K. Bonás and Rodrigo Nogueira},
+  year={2023},
+  eprint={2307.05410},
+  archivePrefix={arXiv},
+  primaryClass={cs.CL}
+}
+
+@inproceedings{d2017passing,
+  title={Passing the Brazilian OAB Exam: Data Preparation and Some Experiments1},
+  author={d RADEMAKER, Alexandre},
+  booktitle={Legal Knowledge and Information Systems: JURIX 2017: The Thirtieth Annual Conference},
+  volume={302},
+  pages={89},
+  year={2017},
+  organization={IOS Press}
+}
+
+@inproceedings{real2020assin,
+  title={The assin 2 shared task: a quick overview},
+  author={Real, Livy and Fonseca, Erick and Oliveira, Hugo Goncalo},
+  booktitle={International Conference on Computational Processing of the Portuguese Language},
+  pages={406--412},
+  year={2020},
+  organization={Springer}
+}
+
+@inproceedings{8923668,
+  author={Sayama, Hélio Fonseca and Araujo, Anderson Viçoso and Fernandes, Eraldo Rezende},
+  booktitle={2019 8th Brazilian Conference on Intelligent Systems (BRACIS)}, 
+  title={FaQuAD: Reading Comprehension Dataset in the Domain of Brazilian Higher Education}, 
+  year={2019},
+  volume={},
+  number={},
+  pages={443-448},
+  keywords={Training;Context modeling;Encyclopedias;Electronic publishing;Internet;Natural Language Processing;Machine Reading Comprehension;Dataset},
+  doi={10.1109/BRACIS.2019.00084}
+}
+
+@software{Chaves_Rodrigues_napolab_2023,
+  author = {Chaves Rodrigues, Ruan and Tanti, Marc and Agerri, Rodrigo},
+  doi = {10.5281/zenodo.7781848},
+  month = {3},
+  title = {{Natural Portuguese Language Benchmark (Napolab)}},
+  url = {https://github.com/ruanchaves/napolab},
+  version = {1.0.0},
+  year = {2023}
+}
+
+@inproceedings{vargas-etal-2022-hatebr,
+  title = "{H}ate{BR}: A Large Expert Annotated Corpus of {B}razilian {I}nstagram Comments for Offensive Language and Hate Speech Detection",
+  author = "Vargas, Francielle  and
+    Carvalho, Isabelle  and
+    Rodrigues de G{\'o}es, Fabiana  and
+    Pardo, Thiago  and
+    Benevenuto, Fabr{\'\i}cio",
+  booktitle = "Proceedings of the Thirteenth Language Resources and Evaluation Conference",
+  month = jun,
+  year = "2022",
+  address = "Marseille, France",
+  publisher = "European Language Resources Association",
+  url = "https://aclanthology.org/2022.lrec-1.777",
+  pages = "7174--7183"
+}
+
+@inproceedings{fortuna-etal-2019-hierarchically,
+  title = "A Hierarchically-Labeled {P}ortuguese Hate Speech Dataset",
+  author = "Fortuna, Paula  and
+    Rocha da Silva, Jo{\~a}o  and
+    Soler-Company, Juan  and
+    Wanner, Leo  and
+    Nunes, S{\'e}rgio",
+  booktitle = "Proceedings of the 3rd Workshop on Abusive Language Online (ALW3)",
+  year = "2019",
+  publisher = "Association for Computational Linguistics",
+  url = "https://aclanthology.org/W19-3510",
+  doi = "10.18653/v1/W19-3510",
+  pages = "94--104",
+}
+
+@InProceedings{BRUM18.389,
+  author = {Henrico Brum and Maria das Gra\c{c}as Volpe Nunes},
+  title = "{Building a Sentiment Corpus of Tweets in Brazilian Portuguese}",
+  booktitle = {Proceedings of the Eleventh International Conference on Language Resources and Evaluation (LREC 2018)},
+  year = {2018},
+  month = {May 7-12, 2018},
+  address = {Miyazaki, Japan},
+  editor = {Nicoletta Calzolari (Conference chair) and Khalid Choukri and Christopher Cieri and Thierry Declerck and Sara Goggi and Koiti Hasida and Hitoshi Isahara and Bente Maegaard and Joseph Mariani and HÚlŔne Mazo and Asuncion Moreno and Jan Odijk and Stelios Piperidis and Takenobu Tokunaga},
+  publisher = {European Language Resources Association (ELRA)},
+  isbn = {979-10-95546-00-9},
+  language = {english}
 }
 ```
