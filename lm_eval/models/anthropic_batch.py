@@ -23,144 +23,199 @@ def remove_surrogates(text):
 
 
 def count_tokens(text: str, model: str) -> int:
-    """Count the number of tokens in a text string."""
+    """Count the number of tokens in a text string using Anthropic's tokenizer."""
+    return len(text) // 4
     try:
-        import tiktoken
+        import anthropic
     except ImportError:
-        eval_logger.warning("tiktoken not installed, returning estimated token count")
+        eval_logger.warning("anthropic not installed, returning estimated token count")
         return len(text.split())
     
+    client = anthropic.Anthropic()
     try:
-        encoding = tiktoken.encoding_for_model(model)
-        return len(encoding.encode(text))
-    except KeyError:
-        eval_logger.warning(f"Model '{model}' not found in tiktoken. Using o200k_base encoding.")
-        encoding = tiktoken.get_encoding("o200k_base")
-        return len(encoding.encode(text))
+        response = client.count_tokens(text)
+        return response.tokens
+    except Exception as e:
+        eval_logger.warning(f"Error counting tokens: {str(e)}. Using fallback estimation.")
+        return len(text) // 4
 
 
 def count_message_tokens(messages: List[Dict[str, str]], model: str) -> Tuple[int, Dict[str, int]]:
     """
-    Count the number of tokens in a list of messages for chat models.
+    Count the number of tokens in a list of messages for Anthropic chat models.
     Returns the total count and a breakdown by role.
     """
     try:
-        import tiktoken
+        import anthropic
     except ImportError:
-        eval_logger.warning("tiktoken not installed, returning estimated token count")
+        eval_logger.warning("anthropic not installed, returning estimated token count")
         return sum(len(m.get("content", "").split()) for m in messages), {}
     
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-    except KeyError:
-        eval_logger.warning(f"Model '{model}' not found in tiktoken. Using o200k_base encoding.")
-        encoding = tiktoken.get_encoding("o200k_base")
+    client = anthropic.Anthropic()
     
-    # Format msg based on OpenAI's documentation
-    # https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
-    tokens_per_message = 3  # every message follows <im_start>{role/name}\n{content}<im_end>\n
-    tokens_per_name = 1     # if there's a name, the role is omitted
+    # Format message content
+    formatted_messages = []
+    system_content = ""
+    for message in messages:
+        if message["role"] == "system":
+            system_content = message["content"]
+            continue
+        elif message["role"] == "user":
+            formatted_messages.append({"role": "user", "content": message["content"]})
+        elif message["role"] == "assistant":
+            formatted_messages.append({"role": "assistant", "content": message["content"]})
     
     # Token count by role
-    token_counts = {"system": 0, "user": 0, "assistant": 0, "function": 0, "total": 0}
+    token_counts = {"system": 0, "user": 0, "assistant": 0, "total": 0}
     
-    total_tokens = 0
-    for message in messages:
-        num_tokens = tokens_per_message
-        for key, value in message.items():
-            if key == "role":
-                role = value
-                continue
-                
-            num_tokens += len(encoding.encode(str(value)))
-            if key == "name":
-                num_tokens += tokens_per_name
-        
-        # Add tokens to role-specific count
-        if role in token_counts:
-            token_counts[role] += num_tokens
-        
-        total_tokens += num_tokens
+    # Count system tokens
+    if system_content:
+        try:
+            system_tokens = client.count_tokens(system_content).tokens
+            token_counts["system"] = system_tokens
+        except Exception:
+            token_counts["system"] = len(system_content) // 4
     
-    # Add 3 tokens for the assistant's reply format
-    total_tokens += 3
+    # Count message tokens
+    for message in formatted_messages:
+        message_content = message["content"]
+        if isinstance(message_content, list):
+            message_content = message_content[0]
+        if isinstance(message_content, dict):
+            message_content = message_content.get("text", "")
+        try:
+            msg_tokens = client.count_tokens(message_content).tokens
+            token_counts[message["role"]] += msg_tokens
+        except Exception:
+            token_counts[message["role"]] += len(message_content) // 4
+    
+    total_tokens = sum(token_counts.values())
     token_counts["total"] = total_tokens
     
     return total_tokens, token_counts
 
 
-async def create_batch_file(input_file_path, custom_llm_provider):
-    """Create a file for batch processing using LiteLLM."""
+async def create_batch_request(batch_file_path, model, batch_params=None):
+    """Create a batch request using Anthropic's API."""
     try:
-        import litellm
+        import anthropic
     except ImportError:
-        raise Exception("Package `litellm` is not installed. Please install via `pip install litellm`")
+        raise Exception("Package `anthropic` is not installed. Please install via `pip install anthropic`")
     
-    file_obj = await litellm.acreate_file(
-        file=open(input_file_path, "rb"),
-        purpose="batch",
-        custom_llm_provider=custom_llm_provider,
+    # Get Anthropic API key from environment
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+    
+    # Set default batch parameters if not provided
+    if batch_params is None:
+        batch_params = {
+        }
+    
+    # Read the JSONL input file to get requests
+    with open(batch_file_path, "r") as f:
+        lines = f.readlines()
+    
+    # Parse request objects from the JSONL file
+    requests = []
+    for line in lines:
+        if line.strip():
+            try:
+                data = json.loads(line)
+                requests.append(data)
+            except json.JSONDecodeError as e:
+                eval_logger.error(f"Error parsing request line: {line}")
+                raise ValueError(f"Invalid JSON in batch file: {e}")
+    
+    if not requests:
+        raise ValueError("No valid requests found in batch file")
+    
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    
+    # Create batch using the beta API
+    batch_response = await client.beta.messages.batches.create(
+        requests=requests,
+        **batch_params
     )
-    eval_logger.info(f"Created batch file: {file_obj}")
-    return file_obj
+    
+    eval_logger.info(f"Created batch request: {batch_response.id}")
+    return batch_response
 
 
-async def create_batch_request(input_file_id, custom_llm_provider, model, completion_window="24h"):
-    """Create a batch request using LiteLLM."""
+async def retrieve_batch(batch_id):
+    """Retrieve a batch using Anthropic's API."""
     try:
-        import litellm
+        import anthropic
     except ImportError:
-        raise Exception("Package `litellm` is not installed. Please install via `pip install litellm`")
+        raise Exception("Package `anthropic` is not installed. Please install via `pip install anthropic`")
     
-    create_batch_response = await litellm.acreate_batch(
-        completion_window=completion_window,
-        endpoint="/v1/chat/completions",
-        input_file_id=input_file_id,
-        custom_llm_provider=custom_llm_provider,
-        model=model,
-        metadata={"source": "lm-evaluation-harness"},
-    )
-    eval_logger.info(f"Created batch request: {create_batch_response}")
-    return create_batch_response
-
-
-async def retrieve_batch(batch_id, custom_llm_provider):
-    """Retrieve a batch using LiteLLM."""
-    try:
-        import litellm
-    except ImportError:
-        raise Exception("Package `litellm` is not installed. Please install via `pip install litellm`")
+    # Get Anthropic API key from environment
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable not set")
     
-    retrieved_batch = await litellm.aretrieve_batch(
-        batch_id=batch_id, 
-        custom_llm_provider=custom_llm_provider
-    )
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    retrieved_batch = await client.beta.messages.batches.retrieve(batch_id=batch_id)
+    
     eval_logger.info(f"Retrieved batch: {retrieved_batch}")
     return retrieved_batch
 
 
-async def get_file_content(file_id, custom_llm_provider):
-    """Get file content using LiteLLM."""
+async def get_batch_outputs(batch_id):
+    """Get outputs from a completed batch using Anthropic's API."""
     try:
-        import litellm
+        import anthropic
     except ImportError:
-        raise Exception("Package `litellm` is not installed. Please install via `pip install litellm`")
+        raise Exception("Package `anthropic` is not installed. Please install via `pip install anthropic`")
     
-    file_content = await litellm.afile_content(
-        file_id=file_id, 
-        custom_llm_provider=custom_llm_provider
-    )
-    return file_content
+    # Get Anthropic API key from environment
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+    
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    
+    # Poll for batch completion
+    while True:
+        batch = await client.beta.messages.batches.retrieve(message_batch_id=batch_id)
+        status = batch.processing_status
+        
+        if status == "ended":
+            break
+        elif status in ["failed", "canceled"]:
+            raise Exception(f"Batch processing {status}")
+        
+        # Wait before polling again
+        await asyncio.sleep(30)
+    
+    # Get results from the batch
+    batch_outputs = {}
+    results_stream = await client.beta.messages.batches.results(message_batch_id=batch_id)
+    
+    # Process each result
+    async for entry in results_stream:
+        if hasattr(entry, 'custom_id') and hasattr(entry, 'result'):
+            if entry.result.type == "succeeded":
+                content_blocks = entry.result.message.content
+                text_content = ""
+                for block in content_blocks:
+                    if hasattr(block, 'text'):
+                        text_content += block.text
+                batch_outputs[entry.custom_id] = {"content": text_content}
+    
+    #print(batch_outputs)
+    #time.sleep(10)
+    return batch_outputs
 
 
-def save_batch_info(batch_info, filename="litellm_batch_info.json"):
+def save_batch_info(batch_info, filename="anthropic_batch_info.json"):
     """Save batch information to a file."""
     with open(filename, "w") as f:
         json.dump(batch_info, f, indent=2)
     eval_logger.info(f"Saved batch info to {filename}")
 
 
-def load_batch_info(filename="litellm_batch_info.json"):
+def load_batch_info(filename="anthropic_batch_info.json"):
     """Load batch information from a file."""
     try:
         with open(filename, "r") as f:
@@ -174,37 +229,31 @@ def load_batch_info(filename="litellm_batch_info.json"):
         return {}
 
 
-@register_model("litellm-batch-completions")
-class LiteLLMBatchCompletionsLM(LM):
+@register_model("anthropic-batch-completions")
+class AnthropicBatchCompletionsLM(LM):
     def __init__(
         self,
-        model: str = "openai/gpt-3.5-turbo",  # Model identifier with provider prefix
-        api_base: str = None,
+        model: str = "claude-3-opus-20240229",
+        api_key: str = None,
         truncate: bool = False,
-        batch_file: str = "litellm_batch_input.jsonl",
-        batch_info_file: str = "litellm_batch_info.json",
-        custom_llm_provider: str = "openai",
-        completion_window: str = "24h",
+        batch_file: str = "anthropic_batch_input.jsonl",
+        batch_info_file: str = "anthropic_batch_info.json",
         write_mode: bool = True,  # True to create batch, False to read results
-        tokens_summary_file: str = "token_usage_summary.json",  # File to save token usage statistics
+        tokens_summary_file: str = "anthropic_token_usage_summary.json",  # File to save token usage statistics
         test_mode: bool = False,
         **kwargs,
     ) -> None:
         """
         :param model: str
-            LiteLLM model identifier with provider prefix
-        :param api_base: str
-            API base URL if using a custom endpoint
+            Anthropic model identifier (e.g., "claude-3-opus-20240229")
+        :param api_key: str
+            Anthropic API key (if not provided, will use ANTHROPIC_API_KEY env var)
         :param truncate: bool
             Truncate input if too long (if False and input is too long, throw error)
         :param batch_file: str
             Path to the JSONL file for batch inputs
         :param batch_info_file: str
             Path to the JSON file to store batch information
-        :param custom_llm_provider: str
-            LiteLLM provider (e.g., "openai", "azure", "anthropic")
-        :param completion_window: str
-            Time window for batch completion (e.g., "24h")
         :param write_mode: bool
             If True, create batch requests; if False, read batch results
         :param tokens_summary_file: str
@@ -212,30 +261,21 @@ class LiteLLMBatchCompletionsLM(LM):
         """
         super().__init__()
         try:
-            import litellm
+            import anthropic
         except ModuleNotFoundError:
             raise Exception(
-                "attempted to use 'litellm' LM type, but package `litellm` is not installed. "
-                "please install via `pip install litellm`",
+                "attempted to use 'anthropic' LM type, but package `anthropic` is not installed. "
+                "please install via `pip install anthropic`",
             )
         
-        # Try to import tiktoken for token counting
-        try:
-            import tiktoken
-            self.has_tiktoken = True
-        except ImportError:
-            eval_logger.warning("tiktoken not installed. Install with 'pip install tiktoken' for accurate token counting.")
-            self.has_tiktoken = False
-        
         self.model = model
-        # Remove provider prefix if present (for token counting)
-        self.model_name = model.split('/')[-1] if '/' in model else model
-        self.api_base = api_base
+        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not self.api_key:
+            raise ValueError("ANTHROPIC_API_KEY not provided or found in environment variables")
+        
         self.truncate = truncate
         self.batch_file = batch_file
         self.batch_info_file = batch_info_file
-        self.custom_llm_provider = custom_llm_provider
-        self.completion_window = completion_window
         self.write_mode = write_mode
         self.tokens_summary_file = tokens_summary_file
         self.test_mode = test_mode
@@ -259,44 +299,16 @@ class LiteLLMBatchCompletionsLM(LM):
             
             # Load responses if batch_info contains necessary data
             if self.batch_info and "batch_id" in self.batch_info:
-                try:
-                    batch_data = asyncio.run(retrieve_batch(
-                        self.batch_info["batch_id"], 
-                        self.custom_llm_provider
-                    ))
-                    
-                    # Process batch data into a usable format
-                    if hasattr(batch_data, "batches") and batch_data.batches:
-                        for item in batch_data.batches:
-                            if hasattr(item, "batch_id") and item.batch_id == self.batch_info["batch_id"]:
-                                file_id = item.output_file_id
-                                break
-                        
-                        if file_id:
-                            output_content = asyncio.run(get_file_content(
-                                file_id, 
-                                self.custom_llm_provider
-                            ))
-                            
-                            # Parse responses into a dictionary by custom_id
-                            for line in output_content.split('\n'):
-                                if line.strip():
-                                    try:
-                                        item = json.loads(line)
-                                        if "custom_id" in item and "response" in item:
-                                            self.batch_responses[item["custom_id"]] = item["response"]
-                                    except json.JSONDecodeError:
-                                        eval_logger.error(f"Error parsing response line: {line}")
-                except Exception as e:
-                    eval_logger.error(f"Error retrieving batch data: {str(e)}")
+                batch_outputs = asyncio.run(get_batch_outputs(self.batch_info["batch_id"]))
+                self.batch_responses = batch_outputs
+                eval_logger.info(f"Loaded {len(batch_outputs)} responses from batch ID: {self.batch_info['batch_id']}")
+    
 
-        # Set API base if provided
-        if self.api_base:
-            os.environ["LITELLM_API_BASE"] = self.api_base
+        # Set API key if provided
+        if self.api_key:
+            os.environ["ANTHROPIC_API_KEY"] = self.api_key
 
         self.fix_text = lambda x: x.strip()
-        if "gemini" in self.model:
-            self.fix_text = remove_surrogates
 
     def _finalize_batch(self):
         """Submit the batch for processing and save batch info."""
@@ -304,7 +316,6 @@ class LiteLLMBatchCompletionsLM(LM):
             return  # Skip finalization in read mode
         
         try:
-
             # Save token usage statistics to separate file
             with open(self.tokens_summary_file, 'w') as f:
                 json.dump(self.token_usage, f, indent=2)
@@ -312,32 +323,29 @@ class LiteLLMBatchCompletionsLM(LM):
             eval_logger.info(f"Token usage summary saved to {self.tokens_summary_file}")
             eval_logger.info(f"Total prompt tokens: {self.token_usage['total_prompt_tokens']}")
             
-             # Create batch request
+            # Create batch request
             if self.test_mode:
                 eval_logger.info("Test mode enabled. Skipping batch creation.")
                 return
             
-            # Create batch file
-            file_obj = asyncio.run(create_batch_file(
-                self.batch_file, 
-                self.custom_llm_provider
-            ))
+            # Set batch parameters
+            batch_params = {
+            }
             
+            # Create batch request directly using the batch file path
             batch_response = asyncio.run(create_batch_request(
-                file_obj.id, 
-                self.custom_llm_provider, 
+                self.batch_file, 
                 self.model,
-                self.completion_window
+                batch_params
             ))
             
             # Save batch information
             self.batch_info = {
                 "batch_id": batch_response.id,
-                "input_file_id": file_obj.id,
+                "batch_file": self.batch_file,
                 "model": self.model,
-                "custom_llm_provider": self.custom_llm_provider,
                 "timestamp": time.time(),
-                "status": batch_response.status,
+                "status": batch_response.processing_status,
                 "token_usage": self.token_usage,
             }
             save_batch_info(self.batch_info, self.batch_info_file)
@@ -352,11 +360,11 @@ class LiteLLMBatchCompletionsLM(LM):
 
     @property
     def max_length(self) -> int:
-        return 2048
+        return 200000  # Claude 3 models have very large context windows
 
     @property
     def max_gen_toks(self) -> int:
-        return 256
+        return 4096
 
     @property
     def batch_size(self):
@@ -375,26 +383,34 @@ class LiteLLMBatchCompletionsLM(LM):
         for request in requests:
             context = request
             gen_kwargs = request.args[1]
-
-            is_anthropic = "anthropic/" in self.model
             
             data = context.ctx_data
             messages = []
-            messages.append({"role": "system", "content": self.fix_text(data['description'])})
+            
+            # Format system message correctly for Anthropic
+            system_message = [{
+                "type": "text",
+                "text": self.fix_text(data['description']),
+                "cache_control": {"type": "ephemeral"}
+            }]
+            
+            # Format few-shot examples
             for shot, ans in data['fewshots']:
                 messages.append({"role": "user", "content": self.fix_text(shot)})
                 messages.append({"role": "assistant", "content": self.fix_text(ans)})
-            if is_anthropic:
-                last_message = messages[-1]['content']
-                messages[-1]['content'] = [{
-                    "type": "text",
-                    "text": last_message,
-                    "cache_control": {"type": "ephemeral"}
-                }]
+            
+            last_message = messages[-1]['content']
+            messages[-1]['content'] = [{
+                "type": "text",
+                "text": last_message,
+                "cache_control": {"type": "ephemeral"}
+            }]
+            
+            # Add the actual query
             messages.append({"role": "user", "content": self.fix_text(data['example'])})
             
             # Count tokens in messages
-            prompt_tokens, token_breakdown = count_message_tokens(messages, self.model_name)
+            prompt_tokens, token_breakdown = count_message_tokens(messages, self.model)
             
             # Update token usage statistics
             self.token_usage["total_prompt_tokens"] += prompt_tokens
@@ -438,12 +454,13 @@ class LiteLLMBatchCompletionsLM(LM):
                         raise ValueError(
                             f"Expected repr(kwargs['until']) to be of type Union[str, list] but got {until}"
                         )
-                    kwargs["stop"] = until
+                    #kwargs["stop_sequences"] = until
                 if "stop" in kwargs.keys():
                     kwargs.pop("stop")
+                if "stop_sequences" in kwargs.keys():
+                    kwargs.pop("stop_sequences")
                 kwargs["temperature"] = 0
-                if 'anthropic' in self.model:
-                    kwargs["max_tokens"] = 32
+                kwargs["max_tokens"] = 32
             else:
                 raise ValueError(
                     f"Expected repr(kwargs) to be of type repr(dict) but got {kwargs}"
@@ -452,18 +469,22 @@ class LiteLLMBatchCompletionsLM(LM):
             if self.write_mode:
                 # Write request to batch file
                 with open(self.batch_file, "a") as f:
-                    if "temperature" in kwargs.keys() and ('o3' in self.model_name or 'o1' in self.model_name):
-                        kwargs.pop("temperature")
+                    # Format request according to Anthropic's Message Batches API requirements
                     batch_data = {
                         "custom_id": custom_id,
-                        "method": "POST",
-                        "url": "/v1/chat/completions",
-                        "body": {
-                            "model": self.model_name,
+                        "params": {
+                            "model": self.model,
+                            "max_tokens": kwargs.get("max_tokens", 32),
                             "messages": messages,
-                            **kwargs
+                            "system": system_message,
+                            "temperature": kwargs.get("temperature", 0),
                         }
                     }
+                    
+                    # Add stop sequences if specified
+                    if "stop_sequences" in kwargs:
+                        batch_data["params"]["stop_sequences"] = kwargs["stop_sequences"]
+                        
                     f.write(json.dumps(batch_data) + "\n")
                 
                 # Return empty response in write mode
@@ -472,12 +493,7 @@ class LiteLLMBatchCompletionsLM(LM):
                 # Retrieve response from batch results in read mode
                 if custom_id in self.batch_responses:
                     response_data = self.batch_responses[custom_id]
-                    choices = response_data.get("choices", [])
-                    if choices and len(choices) > 0:
-                        message = choices[0].get("message", {})
-                        response_text = message.get("content", "")
-                    else:
-                        response_text = ""
+                    response_text = response_data.get("content", "")
                 else:
                     eval_logger.warning(f"No response found for ID: {custom_id}")
                     response_text = ""

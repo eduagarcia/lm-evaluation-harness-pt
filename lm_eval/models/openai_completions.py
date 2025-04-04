@@ -540,10 +540,10 @@ class OpenaiChatCompletionsLM(LM):
 
             s = response[0] if response else ""
 
-            if until is not None:
-                for term in until:
-                    if len(term) > 0:
-                        s = s.split(term)[0]
+            #if until is not None:
+            #    for term in until:
+            #        if len(term) > 0:
+            #            s = s.split(term)[0]
 
             res.append(s)
 

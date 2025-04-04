@@ -1,11 +1,13 @@
 import copy
 import os
+from threading import Thread
 import yaml
 from collections import defaultdict
 from importlib.util import find_spec
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import time
 import re
+import json
 
 from tqdm import tqdm
 
@@ -14,6 +16,32 @@ from lm_eval.api.model import LM
 from lm_eval.api.registry import register_model
 from lm_eval.utils import retry_on_specific_exceptions, eval_logger
 
+import signal
+
+
+def load_jsonl(file_path: str) -> List[Dict[str, Any]]:
+    """Load a JSONL file and return a list of dictionaries."""
+    with open(file_path, 'r') as f:
+        return [json.loads(line) for line in f]
+    
+def save_jsonl(data: Union[List[Dict[str, Any]], Dict[str, Any]], file_path: str, append: bool = False):
+    """Save a list of dictionaries to a JSONL file."""
+    mode = 'a' if append else 'w'
+    if isinstance(data, dict):
+        data = [data]
+    with open(file_path, mode, encoding='utf-8') as f:
+        for item in data:
+            f.write(json.dumps(item) + '\n')
+
+def force_kill_thread(force_kill_time: str):
+    kill = False
+    while True:
+        current_time = time.strftime("%H:%M")
+        if current_time == force_kill_time or kill:
+            print(f"Forcing process to kill at {force_kill_time}")
+            os.kill(os.getpid(), signal.SIGKILL)
+            kill = True
+        time.sleep(20)
 
 def litellm_completion(model, chat: bool = False, **kwargs):
     """Query LiteLLM for completion.
@@ -45,27 +73,29 @@ def litellm_completion(model, chat: bool = False, **kwargs):
         # Filter out basic parameters that will be explicitly passed
         filtered_kwargs = {k: v for k, v in kwargs.items() 
                          if k not in ['model', 'messages', 'prompt', 'stream']}
-        
         if chat:
             messages = kwargs.get("messages", [])
-            return litellm.completion(
+            resp = litellm.completion(
                 model=model, 
                 messages=messages,
-                stream=False,
                 **filtered_kwargs
             )
         else:
             prompt = kwargs.get("prompt", "")
-            return litellm.completion(
+            resp = litellm.completion(
                 model=model, 
                 prompt=prompt, 
-                stream=False,
                 **filtered_kwargs
             )
 
+        return resp
+
     resp = None
+    response = None
     try:
         resp = completion()
+        if hasattr(resp, 'usage'):
+            eval_logger.info(f"Usage: {resp.usage}")
         response = []
         for c in resp.choices:
             content = c.message.content if hasattr(c, 'message') else c.text
@@ -76,13 +106,11 @@ def litellm_completion(model, chat: bool = False, **kwargs):
         
     except Exception as e:
         eval_logger.info(f"Exception raised: {str(e)}")
+        eval_logger.info(f"Object: {resp}")
         eval_logger.info("Given an empty response")
         response = [""]
-        # Re-raise the exception if resp is None
-        if resp is None:
-            raise
 
-    return resp
+    return response
 
 
 def remove_surrogates(text):
@@ -110,6 +138,11 @@ class LiteLLMChatCompletionsLM(LM):
         truncate: bool = False,
         sleep_after_request: float = None,
         config_path: str = None,
+        load_log_file: str = None,
+        response_jsonl: str = None,
+        force_kill_time: str = None,
+        kill_after_n_requests: int = None,
+        max_tokens: int = None,
         **kwargs,
     ) -> None:
         """
@@ -135,6 +168,7 @@ class LiteLLMChatCompletionsLM(LM):
         self.truncate = truncate
         self.sleep_after_request = sleep_after_request
         self.model_params = {}
+        self.max_tokens = max_tokens
 
         # Set API base if provided
         if self.api_base:
@@ -145,7 +179,7 @@ class LiteLLMChatCompletionsLM(LM):
             config = load_yaml_config(config_path)
             if config and 'model_list' in config:
                 for model_config in config['model_list']:
-                    if model_config.get('model_name') == self.model.split('/')[-1] or model_config.get('model_name') == self.model:
+                    if self.model.split('/')[-1] in model_config.get('model_name') or model_config.get('model_name').split('/')[-1] in self.model:
                         self.model_params = model_config.get('litellm_params', {})
                         # If model is specified in litellm_params, use that instead
                         if 'model' in self.model_params:
@@ -157,6 +191,82 @@ class LiteLLMChatCompletionsLM(LM):
         if "gemini" in self.model:
             self.fix_text = remove_surrogates
 
+        self.response_jsonl = response_jsonl
+        self.has_existing_response_jsonl = False
+        self.response_history = []
+        self.response_history_ids = {}
+        if response_jsonl is not None:
+            if os.path.exists(response_jsonl):
+                self.has_existing_response_jsonl = True
+                self.response_history = load_jsonl(response_jsonl)
+                self.response_history_ids = {}
+                for item in self.response_history:
+                    self.response_history_ids[item['id']] = item
+            else:
+                save_jsonl(self.response_history, response_jsonl)
+
+        if force_kill_time is not None:
+            eval_logger.info(f"Force kill time: {force_kill_time}")
+            time_monitoring_thread = Thread(target=force_kill_thread, args=(force_kill_time,), daemon=True)
+            time_monitoring_thread.start()
+
+        self.kill_after_n_requests = kill_after_n_requests
+        if kill_after_n_requests is not None:
+            eval_logger.info(f"Killing after {kill_after_n_requests} requests")
+        self.sessionrequests_count = 0
+
+        self.load_log_file = load_log_file
+        self.has_log_values = False
+        if load_log_file is not None:
+            eval_logger.info(f"Loading log file: {load_log_file}")
+            tasks = {}
+            current_task = None
+            current_values = []
+            f = open(load_log_file, 'r')
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                if "Selected Tasks: " in line:
+                    #extract task names from line
+                    #ex: extract bluex from 2025-04-03:02:34:30,050 INFO     [__main__.py:236] Selected Tasks: ['bluex']
+                    try:
+                        task_part = line.split("Selected Tasks: ")[1]
+                        task_list = eval(task_part)  # Safely convert string representation of list to actual list
+                        if len(task_list) == 1:
+                            
+                            if current_task is not None and len(current_values) > 0:
+                                if current_task not in tasks or len(current_values) > len(tasks[current_task]):
+                                    tasks[current_task] = current_values
+                            current_task = task_list[0]
+                            current_values = []
+                        else:
+                            raise Exception(f"Expected 1 task name, got {len(task_list)}")
+                    except (IndexError, SyntaxError, ValueError) as e:
+                        raise Exception(f"Failed to extract task names from line: {line}. Error: {e}")
+                
+                
+                elif current_task is not None and "Response: " in line:
+                    try:
+                        values = eval(line.split("Response: ")[1])
+                        if isinstance(values, list) and len(values) == 1:
+                            current_values.append(values[0])
+                        else:
+                            raise Exception(f"Expected 1 value, got {len(values)}")
+                    except (IndexError, SyntaxError, ValueError) as e:
+                        raise Exception(f"Failed to extract values from line: {line}. Error: {e}")
+                elif current_task is not None and "Given an empty response" in line:
+                    current_values.append(None)
+            
+            if current_task is not None and len(current_values) > 0:
+                if current_task not in tasks or len(current_values) > len(tasks[current_task]):
+                    tasks[current_task] = current_values
+            f.close()
+            if len(tasks) > 0:
+                eval_logger.info(f"Found {len(tasks)} tasks in log file: {tasks.keys()}")
+                self.has_log_values = True
+                self.log_tasks = tasks
+                        
     @property
     def max_length(self) -> int:
         # Note: the OpenAI API supports up to 2049 tokens, with the first token being the first input token
@@ -180,18 +290,35 @@ class LiteLLMChatCompletionsLM(LM):
         res = []
 
         pbar = tqdm(total=len(requests), disable=(self.rank != 0))
+        curr_task = None
+        curr_index = 0
         for request in requests:
             context = request
             gen_kwargs = request.args[1]
+
+            # Generate a unique ID for this request
+            custom_id = f"{context.task_name}-{context.doc_id}"
+            if hasattr(context, 'repeats') and context.repeats is not None:
+                custom_id += f"-{context.repeats}"
+            
+            is_anthropic = "anthropic/" in self.model
             
             inps = []
             data = context.ctx_data
+
             inps.append({"role": "system", "content": self.fix_text(data['description'])})
             for shot, ans in data['fewshots']:
                 inps.append({"role": "user", "content": self.fix_text(shot)})
                 inps.append({"role": "assistant", "content": self.fix_text(ans)})
+            if is_anthropic:
+                last_message = inps[-1]['content']
+                inps[-1]['content'] = [{
+                    "type": "text",
+                    "text": last_message,
+                    "cache_control": {"type": "ephemeral"}
+                }]
             inps.append({"role": "user", "content": self.fix_text(data['example'])})
-            
+
             until = None
             if isinstance(kwargs := copy.deepcopy(gen_kwargs), dict):
                 if "do_sample" in kwargs.keys():
@@ -214,6 +341,13 @@ class LiteLLMChatCompletionsLM(LM):
                 #if "claude" in self.model or "llama" in self.model:
                 if "stop" in kwargs.keys():
                     kwargs.pop("stop")
+                kwargs["temperature"] = 0
+                if 'openai/o3' in self.model or 'openai/o1' in self.model:
+                    kwargs.pop("temperature")
+                if self.max_tokens is not None:
+                    kwargs["max_tokens"] = self.max_tokens
+                if 'max_gen_toks' in kwargs.keys():
+                    kwargs.pop("max_gen_toks")
                 #kwargs["max_tokens"] = kwargs.pop("max_gen_toks", self.max_gen_toks)
             else:
                 raise ValueError(
@@ -234,25 +368,50 @@ class LiteLLMChatCompletionsLM(LM):
             
             # Add runtime parameters (will override config if there are conflicts)
             litellm_kwargs.update(kwargs)
+
+            if curr_task != context.task_name:
+                curr_task = context.task_name
+                curr_index = 0
+            else:
+                curr_index += 1
             
-            try:
+            use_log_condition = self.has_log_values and curr_task in self.log_tasks and curr_index < len(self.log_tasks[curr_task]) and self.log_tasks[curr_task][curr_index] is not None
+
+            if self.has_existing_response_jsonl and custom_id in self.response_history_ids:
+                response = self.response_history_ids[custom_id]['response']
+                eval_logger.info(f"Using existing response for {custom_id}")
+            elif use_log_condition:
+                response = [self.log_tasks[curr_task][curr_index]]
+                eval_logger.info(f"Using logged value at index {curr_index}")
+                eval_logger.info(f"Response: {response}")
+
+                eval_logger.info(f"Response: {response}")
+            else:
                 response = litellm_completion(
                     model=self.model,
                     chat=True,
                     messages=inps,
-                    temperature=0,
                     **litellm_kwargs,
                 )
-                
-                # Extract response from litellm response format
-                if response.choices:
-                    content = response.choices[0].message.content if hasattr(response.choices[0], 'message') else ""
-                    s = content
-                else:
-                    s = ""
-            except Exception as e:
-                eval_logger.error(f"Error in litellm_completion: {str(e)}")
-                s = ""  # Empty response on error
+                self.sessionrequests_count += 1
+                if self.kill_after_n_requests is not None and self.sessionrequests_count >= self.kill_after_n_requests:
+                    eval_logger.info(f"Killing after {self.sessionrequests_count} requests")
+                    os.kill(os.getpid(), signal.SIGKILL)
+            
+            # Extract response from litellm response format
+            data = {
+                'id': custom_id,
+                'task': curr_task,
+                'index': curr_index,
+                'response': response,
+            }
+            if self.response_jsonl is not None and custom_id not in self.response_history_ids:
+                save_jsonl(data, self.response_jsonl, append=True)
+            self.response_history_ids[custom_id] = data
+
+            s = response[0] if response else ""
+            s = "" if s is None or not isinstance(s, str) else s
+            
 
             #if until is not None:
             #    for term in until:

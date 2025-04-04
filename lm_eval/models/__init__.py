@@ -9,5 +9,6 @@ from . import vllm_causallms
 from . import mamba_lm
 from . import litellm_completions
 from . import litellm_batch
+from . import anthropic_batch
 
 # TODO: implement __all__
