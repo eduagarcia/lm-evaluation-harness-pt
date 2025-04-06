@@ -21,9 +21,9 @@ This leaderboard is made possible by the support of the [Center of Excellence in
 
 This fork includes several modifications tailored for Portuguese language evaluation:
 
-- **Portuguese Task Suite**: A comprehensive collection of NLP tasks designed for the Portuguese language (see list below).
+- **Portuguese Task Suite**: A collection of NLP tasks designed for the Portuguese language (see list below).
 - **Direct Response Evaluation**: Works with models' direct text responses rather than just log probabilities, suitable for evaluating instruction-tuned models and chatbots.
-- **Chat Template Support**: Enhanced compatibility with LLMs using various chat templates from the transformers libary. Automatically detects and applies the appropriate chat template format (system-user-assistant, user-assistant, or assistant-user) without requiring manual configuration. This ensures accurate evaluation of chat-optimized models with their native prompt formats.
+- **Chat Template Support**: Added compatibility with LLMs using various chat templates from the transformers libary. Automatically detects and applies the appropriate chat template format (system-user-assistant, user-assistant, or assistant-user) without requiring manual configuration. This ensures accurate evaluation of chat-optimized models with their native prompt formats.
 - **Multi-Backend Support**: 
   - **vLLM Integration**: Accelerated inference with batch evaluation for faster processing of large models.
   - **LiteLLM Support**: Evaluation of closed-source models via APIs (including OpenAI, Google's Vertex AI/Gemini, etc.).
@@ -32,12 +32,13 @@ This fork includes several modifications tailored for Portuguese language evalua
   - Dynamic max_length adjustment for efficient resource utilization.
   - Starting_max_length option for better GPU memory management.
 - **Evaluation Enhancements**:
-  - Improved metrics calculation (F1-macro, Pearson) with better handling of edge cases.
+  - Added new metrics calculations (F1-macro, Pearson) to be aligned with the selected tasks original benchmark metric.
   - Reasoning extraction for models that provide explanations before answers (e.g., DeepSeek models).
   - Temperature control (set to 0) for API models to ensure deterministic outputs.
 - **Custom Filters**: Special text processing pipelines adapted for Portuguese tasks characteristics.
 - **UTF-8 Support**: Proper encoding for Portuguese text with accents and special characters in both inputs and outputs.
 - **Few-shot ID Sampling**: Preserves order of few-shot examples for consistent evaluation.
+- **Better integration with Huggingface Datasets API**
 
 ## Portuguese Evaluation Tasks
 
@@ -68,6 +69,8 @@ Task descriptions:
 - **oab_exams**: Multiple-choice questions from the Brazilian Bar Exam, testing legal knowledge and reasoning.
 
 *Note: Baseline scores represent the default performance expectation (e.g., random guessing for classification tasks). Few-shot counts might vary slightly based on configuration.*
+
+The prompts and few-shots items used for each task can be found on it's YAML configuration file on [lm_eval/tasks/portuguese](lm_eval/tasks/portuguese)
 
 ## Getting Started
 
