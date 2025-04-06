@@ -87,7 +87,7 @@ def litellm_completion(model, chat: bool = False, **kwargs):
                 prompt=prompt, 
                 **filtered_kwargs
             )
-
+        eval_logger.info(f"Response: {resp}")
         return resp
 
     resp = None
@@ -376,16 +376,16 @@ class LiteLLMChatCompletionsLM(LM):
                 curr_index += 1
             
             use_log_condition = self.has_log_values and curr_task in self.log_tasks and curr_index < len(self.log_tasks[curr_task]) and self.log_tasks[curr_task][curr_index] is not None
-
+            loaded_response = False
             if self.has_existing_response_jsonl and custom_id in self.response_history_ids:
                 response = self.response_history_ids[custom_id]['response']
                 eval_logger.info(f"Using existing response for {custom_id}")
+                loaded_response = True
             elif use_log_condition:
                 response = [self.log_tasks[curr_task][curr_index]]
                 eval_logger.info(f"Using logged value at index {curr_index}")
                 eval_logger.info(f"Response: {response}")
-
-                eval_logger.info(f"Response: {response}")
+                loaded_response = True
             else:
                 response = litellm_completion(
                     model=self.model,
@@ -425,7 +425,7 @@ class LiteLLMChatCompletionsLM(LM):
             )
             pbar.update(1)
             
-            if self.sleep_after_request is not None:
+            if self.sleep_after_request is not None and not loaded_response:
                 time.sleep(self.sleep_after_request)
 
         pbar.close()

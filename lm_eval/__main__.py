@@ -294,6 +294,10 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
                     output_name = "{}_{}".format(
                         re.sub("/|=", "__", args.model_args), task_name
                     )
+                    if len(output_name) > 200:
+                        eval_logger.warning(f"Output name is too long: {output_name}")
+                        output_name = output_name[:150] + '__' + output_name[-50:]
+                        eval_logger.warning(f"Truncated output name: {output_name}")
                     filename = path.joinpath(f"{output_name}.jsonl")
                     samples_dumped = json.dumps(
                         samples[task_name],
