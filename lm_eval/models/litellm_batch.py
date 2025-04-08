@@ -188,6 +188,7 @@ class LiteLLMBatchCompletionsLM(LM):
         write_mode: bool = True,  # True to create batch, False to read results
         tokens_summary_file: str = "token_usage_summary.json",  # File to save token usage statistics
         test_mode: bool = False,
+        max_tokens: int = None,
         **kwargs,
     ) -> None:
         """
@@ -239,7 +240,8 @@ class LiteLLMBatchCompletionsLM(LM):
         self.write_mode = write_mode
         self.tokens_summary_file = tokens_summary_file
         self.test_mode = test_mode
-        
+        self.max_tokens = max_tokens
+
         # Token usage statistics
         self.token_usage = {
             "total_prompt_tokens": 0,
@@ -442,8 +444,10 @@ class LiteLLMBatchCompletionsLM(LM):
                 if "stop" in kwargs.keys():
                     kwargs.pop("stop")
                 kwargs["temperature"] = 0
-                if 'anthropic' in self.model:
-                    kwargs["max_tokens"] = 32
+                #if 'anthropic' in self.model:
+                #    kwargs["max_tokens"] = 32
+                if self.max_tokens is not None:
+                    kwargs["max_tokens"] = self.max_tokens
             else:
                 raise ValueError(
                     f"Expected repr(kwargs) to be of type repr(dict) but got {kwargs}"

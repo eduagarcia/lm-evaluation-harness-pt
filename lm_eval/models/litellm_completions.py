@@ -305,11 +305,18 @@ class LiteLLMChatCompletionsLM(LM):
             
             inps = []
             data = context.ctx_data
-
-            inps.append({"role": "system", "content": self.fix_text(data['description'])})
-            for shot, ans in data['fewshots']:
-                inps.append({"role": "user", "content": self.fix_text(shot)})
-                inps.append({"role": "assistant", "content": self.fix_text(ans)})
+            
+            add_system_instruction = True
+            if 'gemma' in self.model:
+                add_system_instruction = False
+            
+            #inps.append({"role": "system", "content": self.fix_text(data['description'])})
+     
+            inps.append({"role": "system" if add_system_instruction else "user", "content": self.fix_text(data['description'])})
+            if data['fewshots']:
+                for shot, ans in data['fewshots']:
+                    inps.append({"role": "user", "content": self.fix_text(shot)})
+                    inps.append({"role": "assistant", "content": self.fix_text(ans)})
             if is_anthropic:
                 last_message = inps[-1]['content']
                 inps[-1]['content'] = [{
