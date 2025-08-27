@@ -116,6 +116,8 @@ class VLLM(LM):
             "quantization": quantization,
             "seed": int(seed),
             'enforce_eager': enforce_eager,
+            'enable_reasoning':True,
+            'reasoning_parser': 'deepseek_r1'
         }
         if load_format is not None:
             self.model_args["load_format"] = load_format
@@ -457,7 +459,7 @@ class VLLM(LM):
             meta["model_is_loaded_in_8bit"] = getattr(quant_config, 'load_in_8bit', None)
         meta["model_is_quantized"] = self.model.llm_engine.model_config.quantization is not None
         meta["model_quantization"] = self.model.llm_engine.model_config.quantization
-        meta["model_device"] = str(self.model.llm_engine.device_config.device)
+        #meta["model_device"] = str(self.model.llm_engine.device_config.device)
         if hasattr(self.model.llm_engine.model_config, 'hf_config'):
             hf_config = self.model.llm_engine.model_config.hf_config
             meta["model_sha"] = hf_config._commit_hash
@@ -795,21 +797,25 @@ class VLLM(LM):
     @staticmethod
     def modify_gen_kwargs(kwargs: dict) -> dict:
         # sampling_params
-        do_sample = kwargs.pop("do_sample", None)
-        if do_sample is False and "temperature" not in kwargs:
-            eval_logger.debug(
-                "Got `do_sample=False` and no temperature value, setting VLLM temperature to 0.0 ..."
-            )
-            kwargs["temperature"] = 0.0
+        #do_sample = kwargs.pop("do_sample", None)
+        #if do_sample is False and "temperature" not in kwargs:
+        #    eval_logger.debug(
+        #        "Got `do_sample=False` and no temperature value, setting VLLM temperature to 0.0 ..."
+        #    )
+        #    kwargs["temperature"] = 0.0
         # hf defaults
         #kwargs["skip_special_tokens"] = kwargs.get("skip_special_tokens", False)
         #kwargs["spaces_between_special_tokens"] = kwargs.get(
         #    "spaces_between_special_tokens", False
         #)
-
-        if "top_k" in kwargs and kwargs["top_k"] is None:
-            del kwargs["top_k"]
-        if "top_p" in kwargs and kwargs["top_p"] is None:
-            del kwargs["top_p"]
+        kwargs.pop("do_sample", None)
+        kwargs.pop("temperature", None)
+        kwargs.pop("top_p", None)
+        kwargs.pop("top_k", None)
+        kwargs.pop("until", None)
+        #if "top_k" in kwargs and kwargs["top_k"] is None:
+        #    del kwargs["top_k"]
+        #if "top_p" in kwargs and kwargs["top_p"] is None:
+        #    del kwargs["top_p"]
 
         return kwargs
