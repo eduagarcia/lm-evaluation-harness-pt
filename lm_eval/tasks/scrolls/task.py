@@ -3,7 +3,7 @@ import numpy as np
 import transformers.data.metrics.squad_metrics as squad_metrics
 
 from abc import abstractmethod
-from datasets import load_metric
+#from datasets import load_metric
 from transformers import AutoTokenizer
 from functools import reduce
 

@@ -147,9 +147,11 @@ def find_executable_memory_size(
                     raise RuntimeError(f"No executable batch and length size found, max_length reached less than {minumum_max_length} at batch_size {batch_size}.")
             
             try:
+                eval_logger.info(f"find_executable_memory_size: Trying with batch_size {batch_size} and max_length {max_length}")
                 return function(batch_size, max_length, *args, **kwargs)
             except Exception as e:
                 if should_reduce_memory_size(e):
+                    eval_logger.info(f"find_executable_memory_size: Failed to run with batch_size {batch_size} and max_length {max_length}, reducing memory size")
                     gc.collect()
                     torch.cuda.empty_cache()
                     if (fix_max_length or batch_size > 1) and not fix_batch_size:
@@ -157,7 +159,7 @@ def find_executable_memory_size(
                     else:
                         max_length = length_reduction_function(max_length)
                 else:
-                    raise
+                    raise e
 
     return decorator
 
@@ -172,7 +174,7 @@ class HFLM(LM):
     """
 
     AUTO_MODEL_CLASS = None
-    _DEFAULT_MAX_LENGTH = 2048
+    _DEFAULT_MAX_LENGTH = 4096
     _MAXIMUM_POSSIBLE_LENGTH=262144
 
     def __init__(
@@ -791,7 +793,7 @@ class HFLM(LM):
             return self.batch_size, self._max_length
 
         starting_max_length = self.max_length
-        if self._max_length is None and self.starting_max_length is not None and self.max_length > self.starting_max_length:
+        if self._max_length is None and self.starting_max_length is not None and starting_max_length > self.starting_max_length:
             starting_max_length = self.starting_max_length
 
 
@@ -1063,22 +1065,20 @@ class HFLM(LM):
                 assert self.AUTO_MODEL_CLASS == transformers.AutoModelForCausalLM
                 return self.model(inps).logits
 
-    def _model_generate(self, context, max_length, stop, **generation_kwargs):
+    def _model_generate(self, context, stop, **generation_kwargs):
         # we require users to pass do_sample=True explicitly
         # for non-greedy gen. This should be reevaluated when considering beam search.
         if "do_sample" not in generation_kwargs:
             generation_kwargs["do_sample"] = False
         # build stopping criteria
-        stopping_criteria = stop_sequences_criteria(
-            self.tokenizer, stop, context.shape[1], context.shape[0]
-        )
+       # stopping_criteria = stop_sequences_criteria(
+       #     self.tokenizer, stop, context.shape[1], context.shape[0]
+       # )
         return self.model.generate(
             input_ids=context,
-            max_length=max_length,
-            stopping_criteria=stopping_criteria,
+        #    stopping_criteria=stopping_criteria,
             pad_token_id=self.tokenizer.pad_token_id,
             use_cache=True,
-            max_new_tokens=None, #overide default of some models
             **generation_kwargs,
         )
 
@@ -1454,6 +1454,8 @@ class HFLM(LM):
             #find max_length
             self._detect_batch_size_and_length()
             print(f"Determined Largest max_length: {self.max_length}")
+
+        
         # for each different set of kwargs, we execute all requests, by batch.
         batch_size = (
             self.batch_size
@@ -1470,13 +1472,34 @@ class HFLM(LM):
 
         meta["batch_size"] = batch_size
         meta["max_length"] = self.max_length
+        meta["max_gen_toks"] = self.max_gen_toks
+        
+        if self.max_gen_toks is not None:
+            if self.max_length < self.starting_max_length:
+                old_max_gen_toks = self.max_gen_toks
+                self.max_gen_toks = max(32, self.max_length - 2048)
+                meta["max_gen_toks"] = self.max_gen_toks
+                if self.max_gen_toks != old_max_gen_toks:
+                    eval_logger.warning(f"Changing max_gen_toks from {old_max_gen_toks} to {self.max_gen_toks}")
+
+        if self.max_gen_toks is None:
+            if self.max_length <= 4096:
+                self.max_gen_toks = max(32, self.max_length - 2560)
+            else:
+                self.max_gen_toks = 1536
+            meta["max_gen_toks"] = self.max_gen_toks
+        
+        eval_logger.info(f"Effective batch size: {batch_size}, max_length: {self.max_length}, max_gen_toks: {self.max_gen_toks}, max_ctx_length: {self.max_length - self.max_gen_toks}")
 
         # we group requests by their generation_kwargs,
         # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
         # in the same batch.
         re_ords = Collator(requests, _collate, grouping=True)
         chunks = re_ords.get_batched(n=batch_size, batch_fn=batch_fn)
+        loop_count = 0
+        loop_print = 20
         for chunk_data in chunks:
+            loop_count += 1
             # unpack the requests and kwargs for this batch
             chunk, all_gen_kwargs = zip(*chunk_data)
             contexts, _, chunk_ctx_data = zip(*chunk)
@@ -1505,8 +1528,8 @@ class HFLM(LM):
                 raise ValueError(
                     f"Expected `kwargs` to be of type `dict` but got {kwargs}"
                 )
-            if not until:
-                until = [self.tok_decode(self.eot_token_id)]
+            #if not until:
+            #    until = [self.tok_decode(self.eot_token_id)]
             
             if "max_gen_toks" in kwargs.keys():
                 max_gen_toks = kwargs.pop("max_gen_toks")
@@ -1514,7 +1537,7 @@ class HFLM(LM):
                 max_gen_toks = 256
 
             if self.max_gen_toks is not None:
-                until = [self.tok_decode(self.eot_token_id)]
+                # until = [self.tok_decode(self.eot_token_id)]
                 max_gen_toks = self.max_gen_toks
 
             # set the max length in tokens of inputs ("context_enc")
@@ -1538,6 +1561,14 @@ class HFLM(LM):
             context_enc = context_enc.to(self.device)
             attn_masks = attn_masks.to(self.device)
 
+            if loop_count % loop_print == 0:
+                print("---------------_model_generate-----------------")
+                print(f"Loop count: {loop_count}")
+                print(f"batch_stat: {[{k: v for k, v in s.items() if k in ['tokenized_was_truncated', 'tokenized_was_padded', 'original_fewshots_size', 'effective_fewshots_size']} for s in batch_stat]}")
+                print(f"context_enc: {context_enc}, shape: {context_enc.shape}")
+                print(f"Attention mask: {attn_masks}, shape: {attn_masks.shape}")
+
+                
             n_truncated = sum([s["tokenized_was_truncated"] for s in batch_stat])
             n_padded = sum([s["tokenized_was_padded"] for s in batch_stat])
             meta["truncated"] += n_truncated
@@ -1546,8 +1577,14 @@ class HFLM(LM):
             meta["non_padded"] += len(contexts) - n_padded
             meta["fewshots_truncated"] += sum([s["original_fewshots_size"] for s in batch_stat]) - sum([s["effective_fewshots_size"] for s in batch_stat])
            
-            if "max_length" not in kwargs:
-                kwargs["max_length"] = context_enc.shape[1] + max_gen_toks
+            if "max_length" in kwargs:
+                del kwargs["max_length"]
+            #   kwargs["max_length"] = context_enc.shape[1] + max_gen_toks
+            #kwargs["max_length"] = self.max_length
+            
+            kwargs["max_new_tokens"] = max_gen_toks
+            if "until" in kwargs:
+                del kwargs["until"]
 
             # perform batched generation
             cont = self._model_generate(
@@ -1556,14 +1593,23 @@ class HFLM(LM):
                 stop=until,
                 **kwargs,
             )
+            if loop_count % loop_print == 0:
+                print(f"Until: {until}")
+                print(f"Kwargs: {kwargs}")
+                print(f"model_reults: {cont}, shape: {cont.shape}")
+                print("--------------loop results------------------")
 
             cont_toks_list = cont.tolist()
+            local_loop = 0
             for cont_toks, context, stat in zip(cont_toks_list, contexts, batch_stat):
+                local_loop += 1
                 # discard context + left-padding toks if using causal decoder-only LM
                 if self.AUTO_MODEL_CLASS == transformers.AutoModelForCausalLM:
-                    cont_toks = cont_toks[context_enc.shape[1] :]
+                    cont_toks = cont_toks[context_enc.shape[1]:]
 
                 s = self.tok_decode(cont_toks)
+                if local_loop == 1 and loop_count % loop_print == 0:
+                    print(f"Model results s: {s}")
 
                 #for deepseek reasoning model
                 reasoning = None
@@ -1585,9 +1631,15 @@ class HFLM(LM):
                 stat['batch_size'] = effective_batch_size
                 stats.append(stat)
 
+                if local_loop == 1 and loop_count % loop_print == 0:
+                    print(f"s without reasoning: {s}")
+                    #print(f"Stat: {stat}")
+
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), s)
                 pbar.update(1)
-
+            if loop_count % loop_print == 0:
+                print(f"res: {res}")
+                print("----------end batch results----------")
         effective_batch_size = sum(batch_sizes)/len(batch_sizes)
         meta["effective_batch_size"] = effective_batch_size
         # reorder this group of results back to original unsorted form
